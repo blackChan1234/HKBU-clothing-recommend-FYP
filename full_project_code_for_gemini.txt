@@ -1,0 +1,3795 @@
+Project Codebase Structure and Content
+=====================================
+
+
+============================================================
+FILE PATH: CLAUDE.md
+============================================================
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+This is a full-stack AI-powered clothing recommendation system with:
+- **Backend**: Python FastAPI server with multi-agent architecture using LangGraph
+- **Frontend**: React + Vite application with modern UI (Framer Motion animations)
+- **AI Features**: Style recommendations, virtual try-on, OOTD diagram generation
+
+The system coordinates 6 specialized AI agents for user profiling, styling, budget planning, contextual advice, and generates outfit images using AI.
+
+## Project Structure
+
+```
+bu clothing recommendfyp/
+├── server.py                    # FastAPI server entry point
+├── main_improved.py             # LangGraph workflow orchestration
+├── apis/
+│   ├── api_clients.py           # Gemini & ChatGPT API clients
+│   └── nano_banana_client.py    # Image generation API client
+├── agents/
+│   └── agents.py                # All 6 agent implementations
+├── services/
+│   └── appearance_service.py    # Main service coordinating agents + image gen
+├── utils/
+│   └── helpers.py               # Utility functions (AgentState, JSON parsing)
+├── front end/
+│   └── my-fashion-app/          # React frontend
+│       ├── src/
+│       │   ├── App.jsx          # Main React component
+│       │   └── services/
+│       │       └── api.js       # Frontend API client
+│       └── package.json
+└── .env                         # Environment variables
+```
+
+## Running the Application
+
+### Backend Server
+```bash
+# Start FastAPI server on localhost:8000
+python server.py
+```
+
+### Frontend Development
+```bash
+cd "front end/my-fashion-app"
+npm install
+npm run dev
+```
+
+The frontend runs on `http://localhost:5173` and connects to backend at `http://localhost:8000`.
+
+## Environment Variables (.env)
+
+```env
+# Google Gemini API (Official)
+GEMINI_API_KEY=your_google_gemini_api_key
+
+# HKBU School API (for ChatGPT/Qwen models)
+HKBU_API_KEY=your_hkbu_api_key
+
+# Nano Banana API (Image Generation)
+NANO_BANANA_API_KEY=your_nano_banana_api_key
+NANO_BANANA_BASE_URL=https://newapi.pockgo.com
+
+# BlueCart API (Product Search)
+BLUECART_API_KEY=your_bluecart_api_key
+```
+
+## API Configuration
+
+### 1. Text Generation APIs
+
+#### Google Gemini API (Official)
+- **URL**: `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`
+- **Header**: `x-goog-api-key: $GEMINI_API_KEY`
+- **Model**: `gemini-3-pro-preview`
+- **Format**:
+```json
+{
+  "contents": [{"parts": [{"text": "prompt"}]}],
+  "generationConfig": {"temperature": 0.7, "maxOutputTokens": 2048}
+}
+```
+
+#### HKBU School API (ChatGPT/Qwen)
+- **URL**: `https://genai.hkbu.edu.hk/api/v0/rest/deployments/{model}/chat/completions?api-version=v1`
+- **Header**: `api-key: $HKBU_API_KEY`
+- **Model**: `qwen3-max`
+- **Format**: OpenAI-compatible chat completions
+
+### 2. Image Generation API (Nano Banana)
+
+- **URL**: `https://newapi.pockgo.com/v1/chat/completions`
+- **Header**: `Authorization: Bearer $NANO_BANANA_API_KEY`
+- **Model**: `gemini-3-pro-image-preview`
+- **Format**:
+```json
+{
+  "model": "gemini-3-pro-image-preview",
+  "messages": [{
+    "role": "user",
+    "content": [
+      {"type": "text", "text": "prompt"},
+      {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,..."}}
+    ]
+  }],
+  "max_tokens": 4096,
+  "temperature": 0.7
+}
+```
+
+### 3. External APIs
+
+- **Hong Kong Observatory**: Weather forecast (no key required)
+  - URL: `https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=fnd&lang=tc`
+- **BlueCart API**: Product search with price filtering
+  - URL: `https://api.bluecartapi.com/request`
+
+## Multi-Agent Architecture
+
+### Agent Workflow (LangGraph)
+```
+User Input
+    ↓
+┌─────────────────────────┐
+│ 1. User Profiler Agent  │ → Extracts: occasion, location, budget, preferences
+└─────────────────────────┘
+    ↓
+┌─────────────────────────┐
+│ 2. Aesthetic Stylist    │ → Generates: style_suggestion, search_query
+└─────────────────────────┘
+    ↓
+┌─────────────────────────┐
+│ 3. Budget Planner       │ → Searches: BlueCart API → budget_items[]
+└─────────────────────────┘
+    ↓
+┌─────────────────────────┐
+│ 4. Context Advisor      │ → Weather API → context_advice
+└─────────────────────────┘
+    ↓
+┌─────────────────────────┐
+│ 5. Manager Agent        │ → Arbitration: CONTINUE (loop) or FINISH
+└─────────────────────────┘
+    ↓ (if FINISH)
+┌─────────────────────────┐
+│ 6. Synthesizer Agent    │ → final_recommendation
+└─────────────────────────┘
+    ↓
+┌─────────────────────────┐
+│ 7. Nano Banana API      │
+│    - OOTD Diagram       │ → Flat-lay clothing image
+│    - Virtual Try-On     │ → User wearing the outfit
+└─────────────────────────┘
+```
+
+### Agent API Usage
+
+| Agent | API | Model |
+|-------|-----|-------|
+| User Profiler | HKBU (Qwen) | qwen3-max |
+| Aesthetic Stylist | HKBU (Qwen) | qwen3-max |
+| Context Advisor | HKBU (Qwen) | qwen3-max |
+| Synthesizer | HKBU (Qwen) | qwen3-max |
+| Manager | Logic only | N/A |
+| Image Generation | Nano Banana | gemini-3-pro-image-preview |
+
+## Frontend Features
+
+### Main Flow
+1. User uploads photo
+2. Selects style preference (Streetwear, Minimalist, Y2K, Luxury, Avant-Garde, Techwear)
+3. Enters special request (optional)
+4. Clicks "Generate Look"
+5. Backend processes through all agents
+6. Frontend displays:
+   - OOTD Diagram (flat-lay clothing image)
+   - Virtual Try-On (user wearing outfit)
+   - Style analysis
+   - Product recommendations with prices/links
+   - Chat interface for follow-up questions
+
+### API Response Structure
+```json
+{
+  "requirements": "user requirements",
+  "agent_summary": {
+    "style_suggestion": "From Stylist",
+    "final_recommendation": "From Synthesizer",
+    "context_advice": "From Context Advisor",
+    "budget_items": [{"name": "", "price": 0, "link": ""}]
+  },
+  "diagram": {
+    "image_data": "data:image/png;base64,...",
+    "image_url": null
+  },
+  "final_image": {
+    "image_data": "data:image/png;base64,...",
+    "image_url": null
+  }
+}
+```
+
+## Key Files
+
+### Backend
+
+- **server.py**: FastAPI entry point with `/api/generate-appearance` endpoint
+- **main_improved.py**: LangGraph workflow with `run_recommendation_system()`
+- **agents/agents.py**: All 6 agent classes with `process()` methods
+- **apis/api_clients.py**: `HKBUAPIClient` with `call_gemini()` and `call_chatgpt()`
+- **apis/nano_banana_client.py**: `NanoBananaClient` for image generation
+- **services/appearance_service.py**: `AppearanceGenerationService` coordinating everything
+
+### Frontend
+
+- **App.jsx**: Main React component with all UI states (input, loading, result, error)
+- **services/api.js**: `generateAppearance()` function calling backend
+
+## Verbose Logging
+
+When running `python server.py`, the console displays detailed agent workflow:
+
+```
+============================================================
+    MULTI-AGENT CLOTHING RECOMMENDATION SYSTEM
+============================================================
+
+[INPUT] User Request: ...
+
+>>> [USER PROFILER AGENT] <<<
+  [User Profile Analysis]
+    - occasion: casual
+    - budget: 3000
+
+>>> [AESTHETIC STYLIST AGENT] <<<
+  [Style Suggestion]: Modern minimalist...
+  [Search Query]: affordable jacket
+
+>>> [BUDGET PLANNER AGENT] <<<
+  Budget: $3000 | Query: 'affordable jacket'
+  [Products Found]: 5 items
+
+>>> [CONTEXT ADVISOR AGENT] <<<
+  [Weather]: Sunny, 25-30C
+  [Advice]: Light breathable fabrics...
+
+>>> [MANAGER AGENT] <<<
+  [Decision]: FINISH -> PROCEED
+
+>>> [SYNTHESIZER] <<<
+  [Final Recommendation]: ...
+
+============================================================
+    NANO BANANA IMAGE GENERATION
+============================================================
+  [NANO BANANA API] Calling gemini-3-pro-image-preview...
+  [DIAGRAM] Status: SUCCESS
+  [VIRTUAL TRY-ON] Status: SUCCESS
+```
+
+## Key Dependencies
+
+```
+# Backend
+fastapi
+uvicorn
+python-dotenv
+requests
+langgraph
+langchain-google-genai
+langchain-openai
+Pillow
+
+# Frontend
+react
+vite
+framer-motion
+lucide-react
+tailwindcss
+```
+
+## Development Notes
+
+- System is designed for Hong Kong use cases (HKD currency, HK weather)
+- Manager Agent implements retry loop (max 3 retries) for budget arbitration
+- Fallback stubs generate placeholder images when API fails
+- All Chinese prompts are used for LLM calls (Traditional Chinese)
+- Frontend handles both `image_data` (base64) and `image_url` responses
+
+## Common Issues & Solutions
+
+1. **Unicode Encoding Error (Windows)**: All print statements use English to avoid cp1252 encoding issues
+2. **Empty API Response**: Check API keys in `.env`
+3. **Image not generated**: Nano Banana falls back to Pillow-generated stub image
+4. **BlueCart no results**: Try broader search keywords or check API key
+
+
+
+============================================================
+FILE PATH: main_improved.py
+============================================================
+import os
+import sys
+from dotenv import load_dotenv
+import time
+
+# Load environment variables
+load_dotenv()
+
+# Add current directory to path for imports
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from utils.helpers import AgentState
+from agents.agents import (
+    ManagerAgent,
+    UserProfilerAgent,
+    AestheticStylistAgent,
+    BudgetPlannerAgent,
+    ContextAdvisorAgent,
+    RecommendationSynthesizerAgent
+)
+from langgraph.graph import StateGraph, END
+
+
+def create_experts_node():
+    """Create a combined experts node that runs all experts in parallel"""
+    def experts_node(state: AgentState):
+        """Run all expert agents in parallel and combine results"""
+        print("--- Running expert team collaboration ---")
+
+        # Initialize agents
+        stylist = AestheticStylistAgent()
+        budget_planner = BudgetPlannerAgent()
+        context_advisor = ContextAdvisorAgent()
+
+        # Run all experts
+        style_result = stylist.process(state)
+        # Update state with style results before budget planning
+        updated_state = {**state, **style_result}
+        budget_result = budget_planner.process(updated_state)
+        context_result = context_advisor.process(updated_state)
+
+        # Combine all results
+        return {
+            **style_result,
+            **budget_result,
+            **context_result,
+        }
+
+    return experts_node
+
+
+def route_from_manager(state: AgentState) -> str:
+    """Determine next node based on manager's state"""
+    if state.get("manager_decision"):
+        return "recommendation_synthesizer"
+    else:
+        return "experts"
+    
+def route_workflow(state: AgentState) -> str:
+    """Decides whether to loop back or finish"""
+    decision = state.get("router_decision", "FINISH")
+    
+    if decision == "CONTINUE":
+        return "stylist"  # Loop back to start of expert chain
+    else:
+        return "synthesizer" # Go to end
+
+def create_workflow():
+    workflow = StateGraph(AgentState)
+
+    # Initialize agents
+    user_profiler = UserProfilerAgent()
+    manager = ManagerAgent()
+    stylist = AestheticStylistAgent()     # Split out
+    budget_planner = BudgetPlannerAgent() # Split out
+    context_advisor = ContextAdvisorAgent() # Split out
+    synthesizer = RecommendationSynthesizerAgent()
+
+    # Add nodes
+    workflow.add_node("user_profiler", user_profiler.process)
+    workflow.add_node("stylist", stylist.process)
+    workflow.add_node("budget_planner", budget_planner.process)
+    workflow.add_node("context_advisor", context_advisor.process)
+    workflow.add_node("manager", manager.process) # This is the Reviewer
+    workflow.add_node("synthesizer", synthesizer.process)
+
+    # Define Edges (Sequential Logic)
+    workflow.set_entry_point("user_profiler")
+    
+    # 1. Profiler -> Stylist (Start the chain)
+    workflow.add_edge("user_profiler", "stylist")
+    
+    # 2. Stylist -> Budget (Now Budget has the query!)
+    workflow.add_edge("stylist", "budget_planner")
+    
+    # 3. Budget -> Context
+    workflow.add_edge("budget_planner", "context_advisor")
+    
+    # 4. Context -> Manager (Manager reviews everything)
+    workflow.add_edge("context_advisor", "manager")
+
+    # 5. Manager makes a decision (Loop or Finish)
+    workflow.add_conditional_edges(
+        "manager",
+        route_workflow,
+        {
+            "stylist": "stylist",      # The Feedback Loop
+            "synthesizer": "synthesizer"
+        }
+    )
+
+    workflow.add_edge("synthesizer", END)
+
+    return workflow.compile()
+
+
+def _print_agent_output(node_name: str, output: dict):
+    """Pretty print each agent's output with clear formatting"""
+
+    # Agent name mapping for better display
+    agent_labels = {
+        "user_profiler": "USER PROFILER AGENT",
+        "stylist": "AESTHETIC STYLIST AGENT",
+        "budget_planner": "BUDGET PLANNER AGENT",
+        "context_advisor": "CONTEXT ADVISOR AGENT",
+        "manager": "MANAGER AGENT (Arbitrator)",
+        "synthesizer": "RECOMMENDATION SYNTHESIZER"
+    }
+
+    label = agent_labels.get(node_name, node_name.upper())
+
+    print(f"\n{'>'*3} [{label}] {'<'*3}")
+    print("-" * 40)
+
+    if not isinstance(output, dict):
+        print(f"  Output: {output}")
+        return
+
+    # Special formatting for different output types
+    for key, value in output.items():
+        if not value:  # Skip empty values
+            continue
+
+        if key == "userProfile":
+            print("  [User Profile Analysis]")
+            if isinstance(value, dict):
+                for k, v in value.items():
+                    print(f"    - {k}: {v}")
+            else:
+                print(f"    {value}")
+
+        elif key == "style_suggestion":
+            print(f"  [Style Suggestion]")
+            print(f"    {value[:200]}..." if len(str(value)) > 200 else f"    {value}")
+
+        elif key == "search_query":
+            print(f"  [Search Query]: {value}")
+
+        elif key == "budget_items":
+            print(f"  [Products Found]: {len(value)} items")
+            for i, item in enumerate(value[:3], 1):  # Show max 3 items
+                name = item.get('name', 'Unknown')[:50]
+                price = item.get('price', 'N/A')
+                print(f"    {i}. {name} - ${price}")
+            if len(value) > 3:
+                print(f"    ... and {len(value) - 3} more items")
+
+        elif key == "context_advice":
+            print(f"  [Context/Weather Advice]")
+            print(f"    {value[:300]}..." if len(str(value)) > 300 else f"    {value}")
+
+        elif key == "router_decision":
+            decision_icon = "LOOP BACK" if value == "CONTINUE" else "PROCEED"
+            print(f"  [Decision]: {value} -> {decision_icon}")
+
+        elif key == "manager_decision":
+            print(f"  [Manager Decision]")
+            print(f"    {value}")
+
+        elif key == "manager_feedback":
+            print(f"  [Feedback to Team]: {value}")
+
+        elif key == "retry_count":
+            print(f"  [Retry Count]: {value}")
+
+        elif key == "final_recommendation":
+            print(f"  [Final Recommendation]")
+            # Truncate long recommendations for console
+            rec_preview = str(value)[:500]
+            print(f"    {rec_preview}..." if len(str(value)) > 500 else f"    {value}")
+
+        else:
+            print(f"  [{key}]: {value}")
+
+    print("-" * 40)
+
+
+def run_recommendation_system(user_input: str, verbose: bool = True, raise_on_error: bool = False):
+    """Run the clothing recommendation system"""
+    if verbose:
+        print("\n" + "=" * 60)
+        print("    MULTI-AGENT CLOTHING RECOMMENDATION SYSTEM")
+        print("=" * 60)
+
+    start_time = time.time()
+    app = create_workflow()
+
+    initial_state = {
+        "userInput": user_input,
+        "userProfile": {},
+        "style_suggestion": "",
+        "search_query": "",
+        "budget_items": [],
+        "context_advice": "",
+        "manager_decision": "",
+        "final_recommendation": "",
+        "budget_exceeded": False,
+        "arbitration_needed": False,
+        "retry_count": 0,
+        "manager_feedback": "",
+        "arbitration_result": ""
+    }
+
+    try:
+        if verbose:
+            print(f"\n[INPUT] User Request: {user_input}")
+            print("\n" + "-" * 60)
+            print("    AGENT WORKFLOW EXECUTION")
+            print("-" * 60)
+
+        for event in app.stream(initial_state, {"recursion_limit": 50}):
+            if not verbose:
+                continue
+            for node_name, output in event.items():
+                _print_agent_output(node_name, output)
+
+        # Get final result
+        final_state = app.invoke(initial_state, {"recursion_limit": 50})
+        end_time = time.time()
+        duration = end_time - start_time
+        if verbose:
+            print("\n" + "=" * 50)
+            print("Final Recommendation")
+            print("=" * 50)
+
+            if final_state.get('arbitration_needed'):
+                print("Manager Arbitration Result:")
+                print(final_state.get('arbitration_result', 'No arbitration result'))
+                print()
+
+            print("Personalized Recommendation:")
+            print(final_state.get('final_recommendation', 'Unable to generate recommendation'))
+            print("\n" + "-" * 50)
+            print(f"Total Execution Time: {duration:.2f} seconds")
+            print("-" * 50)
+        return final_state
+
+    except Exception as e:
+        if verbose:
+            print(f"System execution error: {e}")
+        if raise_on_error:
+            raise
+        return None
+
+
+def main():
+    """Main function with interactive mode and example"""
+    print("Welcome to Smart Clothing Recommendation System")
+    print("Features: Multi-agent collaboration + Budget arbitration + School API integration")
+
+    # Check API configuration
+    hkbu_key = os.getenv("HKBU_API_KEY")
+    if not hkbu_key or hkbu_key == "YOUR_SCHOOL_API_KEY_HERE":
+        print("\nNote: Please set your HKBU_API_KEY in .env file")
+        print("   System will use fallback API as backup")
+
+    # Example usage
+    print("\nRunning example:")
+    example_input = "我週末要去香港石澳海邊參加朋友的婚禮，預算3000港幣。"
+
+    result = run_recommendation_system(example_input)
+
+    # Interactive mode
+    print("\n" + "=" * 50)
+    print("Interactive Mode (type 'quit' to exit)")
+    print("=" * 50)
+
+    while True:
+        try:
+            user_input = input("\nDescribe your clothing needs: ").strip()
+
+            if user_input.lower() in ['quit', 'exit', 'q']:
+                print("Thank you for using Smart Clothing Recommendation System!")
+                break
+
+            if not user_input:
+                print("Please enter your requirements")
+                continue
+
+            run_recommendation_system(user_input, verbose=False)
+
+        except KeyboardInterrupt:
+            print("\nProgram interrupted. Thank you for using!")
+            break
+        except Exception as e:
+            print(f"Processing error: {e}")
+
+
+if __name__ == "__main__":
+    main()
+
+
+============================================================
+FILE PATH: scan.py
+============================================================
+import os
+
+# --- 設定區域 (Configuration) ---
+
+# 1. 你想要包含的檔案類型 (根據你的 Full-stack 專案設定)
+ALLOWED_EXTENSIONS = {
+    '.py',       # Python 后端
+    '.js', '.jsx', # React 前端
+    '.ts', '.tsx', # 如果你有用 TypeScript
+    '.css',      # 樣式 (有的話可能有助於理解 UI)
+    '.md',       # README 文件通常包含架構說明
+    '.json',     # 設定檔 (如 package.json 可以讓 AI 知道你用了甚麼庫)
+    '.sql'       # 資料庫結構
+}
+
+# 2. 絕對要忽略的資料夾 (這是最重要的一步，避免檔案過大)
+IGNORE_DIRS = {
+    'node_modules',  # React 依賴包 (超大，絕對不要)
+    '__pycache__',   # Python 快取
+    '.git',          # Git 版本控制
+    '.venv', 'venv', # Python 虛擬環境
+    '.idea', '.vscode', # IDE 設定
+    'dist', 'build', 'coverage', # 編譯後的檔案
+    'assets', 'images','IDM-VTON' # 圖片通常不需要轉成文字
+}
+
+# 3. 特殊要忽略的檔案
+IGNORE_FILES = {
+    'package-lock.json', # 太長且無助於邏輯理解
+    'yarn.lock',
+    '.DS_Store'          # Mac 系統檔
+}
+
+OUTPUT_FILENAME = "full_project_code_for_gemini.txt"
+
+def combine_files(start_path):
+    print(f"🚀 開始掃描資料夾: {start_path} ...")
+    
+    with open(OUTPUT_FILENAME, 'w', encoding='utf-8') as outfile:
+        # 寫入一個開頭說明，告訴 Gemini 這是什麼
+        outfile.write("Project Codebase Structure and Content\n")
+        outfile.write("=====================================\n\n")
+
+        # os.walk 會自動鑽進每一層資料夾
+        for root, dirs, files in os.walk(start_path):
+            # 修改 dirs 列表，讓 os.walk 略過我們不想看的資料夾 (inplace modification)
+            dirs[:] = [d for d in dirs if d not in IGNORE_DIRS]
+
+            for file in files:
+                # 檢查檔案是否在忽略清單中
+                if file in IGNORE_FILES:
+                    continue
+
+                # 檢查副檔名是否是我們要的
+                _, ext = os.path.splitext(file)
+                if ext.lower() in ALLOWED_EXTENSIONS:
+                    file_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(file_path, start_path) # 取得相對路徑
+                    
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as infile:
+                            content = infile.read()
+                            
+                            # 這是給 Gem 看的格式，非常重要！
+                            # 讓 AI 知道這段 code 屬於哪個檔案
+                            outfile.write(f"\n{'='*60}\n")
+                            outfile.write(f"FILE PATH: {rel_path}\n")
+                            outfile.write(f"{'='*60}\n")
+                            outfile.write(content)
+                            outfile.write("\n\n")
+                            
+                            print(f"✅ 已加入: {rel_path}")
+                            
+                    except Exception as e:
+                        print(f"❌ 無法讀取: {rel_path} (Error: {e})")
+
+    print(f"\n✨ 完成！所有程式碼已合併至: {OUTPUT_FILENAME}")
+    print(f"📁 檔案大小: {os.path.getsize(OUTPUT_FILENAME) / 1024:.2f} KB")
+
+if __name__ == "__main__":
+    # 執行腳本，掃描當前目錄
+    current_directory = os.getcwd()
+    combine_files(current_directory)
+
+
+============================================================
+FILE PATH: server.py
+============================================================
+import logging
+import os
+
+# Fix Windows console encoding for Chinese characters
+os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
+
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+
+from services.appearance_service import AppearanceGenerationService
+
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title="Appearance Fusion API", version="0.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+service = AppearanceGenerationService()
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
+@app.post("/api/generate-plan")
+async def generate_plan(
+    requirements: str = Form(...),
+    style: str = Form(None),
+    user_prompt: str = Form(None),
+    budget: int = Form(500),
+    location: str = Form("Hong Kong"),
+    gender: str = Form("Men"),
+    age: str = Form("Young Adult (20-35)")
+):
+    try:
+        # just call the service method not gen image
+        payload = service.generate_plan_only(
+            requirements=requirements,
+            selected_style=style,
+            user_prompt=user_prompt,
+            budget=budget,
+            location=location,
+            gender=gender,
+            age=age
+        )
+        return payload
+    except Exception as exc:
+        logger.exception("Failed to generate plan")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+@app.post("/api/generate-visuals")
+async def generate_visuals(
+    image: UploadFile = File(...),
+    internal_context: str = Form(...) # receive first step generated Context
+):
+    try:
+        image_bytes = await image.read()
+        payload = service.generate_visuals_only(
+            user_image_bytes=image_bytes,
+            internal_context=internal_context
+        )
+        return payload
+    except Exception as exc:
+        logger.exception("Failed to generate visuals")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
+
+
+============================================================
+FILE PATH: 項目管理計劃.md
+============================================================
+# 智能服裝推薦系統項目管理計劃
+
+## 項目概述
+**項目名稱**：多代理協作智能服裝推薦系統
+**項目期間**：2024年9月 - 2025年2月（6個月）
+**技術棧**：Python, LangGraph, Google Gemini, OpenAI GPT, 電商API
+
+## 核心問題解答
+
+### 問題一：推薦哪一個電商服裝產品API？
+
+#### 現狀分析
+- **目前使用**：Walmart API
+- **選擇原因**：免費、文檔完整、作為過渡方案
+- **局限性**：主要針對美國市場，對香港用戶適用性較低
+
+#### 未來規劃
+- **首選目標**：淘寶API
+  - 香港用戶熟悉度高
+  - 商品種類豐富
+  - 價格競爭力強
+  - 配送便利
+
+- **備選方案**：拼多多API
+  - 價格優勢明顯
+  - 新興平台潛力
+  - 年輕用戶群體偏好
+
+#### API比較表
+| API平台 | 優勢 | 劣勢 | 適用性 | 獲取難度 |
+|---------|------|------|--------|----------|
+| Walmart | 免費、穩定 | 美國市場為主 | 低 | 容易 |
+| 淘寶 | 本地化強、商品豐富 | API門檻高 | 高 | 困難 |
+| 拼多多 | 價格優勢 | 文檔較少 | 中 | 中等 |
+
+### 問題二：使用什麼時尚數據集訓練Agent？
+
+#### 推薦數據集組合
+
+1. **Fashion-MNIST**
+   - **用途**：基礎服裝分類
+   - **規模**：60,000訓練圖像，10個類別
+   - **優勢**：輕量級、易於處理
+   - **應用**：代理基礎分類能力訓練
+
+2. **DeepFashion**
+   - **用途**：高級屬性識別
+   - **規模**：80萬+高解析度圖像
+   - **優勢**：包含詳細屬性標註
+   - **應用**：風格分析、屬性提取
+
+3. **Fashion Product Images Dataset（Kaggle）**
+   - **用途**：真實電商場景
+   - **規模**：44,000+產品圖像
+   - **優勢**：包含價格、品牌、顏色元數據
+   - **應用**：推薦算法訓練
+
+4. **香港本地數據（自建）**
+   - **用途**：本地化適配
+   - **來源**：爬取本地電商網站
+   - **優勢**：高度本地化
+   - **應用**：模型微調
+
+## 項目階段規劃
+
+### 階段1：基礎架構建設（9月-10月）
+
+#### 9月任務（4週）
+**週1-2：環境搭建與核心架構**
+- [x] Python環境配置
+- [x] LangGraph框架集成
+- [x] 學校API集成（Gemini + GPT）
+- [ ] 基礎代理類設計
+
+**週3-4：多代理系統實現**
+- [ ] 用戶分析代理開發
+- [ ] 經理代理（協調機制）
+- [ ] 美學造型代理（GPT-4）
+- [ ] 預算規劃代理
+
+#### 10月任務（4週）
+**週1-2：外部API整合**
+- [ ] Walmart API集成與測試
+- [ ] 香港天文台API集成
+- [ ] 錯誤處理機制
+- [ ] API限流與緩存
+
+**週3-4：數據準備與驗證**
+- [ ] Fashion-MNIST數據下載
+- [ ] DeepFashion數據集評估
+- [ ] 數據預處理管道
+- [ ] 基礎測試用例
+
+#### 階段1交付物
+- [ ] 完整的多代理系統原型
+- [ ] 基本推薦功能演示
+- [ ] 技術文檔第一版
+- [ ] 測試報告
+
+### 階段2：功能增強與優化（11月-12月）
+
+#### 11月任務（4週）
+**週1-2：電商API升級研究**
+- [ ] 淘寶開放平台申請流程調研
+- [ ] 拼多多API可行性分析
+- [ ] API抽象層設計
+- [ ] 多平台切換機制
+
+**週3-4：智能推薦算法**
+- [ ] 時尚數據集預處理
+- [ ] 基礎分類模型訓練
+- [ ] 風格相似度算法
+- [ ] 個性化推薦引擎
+
+#### 12月任務（4週）
+**週1-2：高級功能開發**
+- [ ] 預算仲裁機制完善
+- [ ] 情境感知推薦
+- [ ] 多輪對話支持
+- [ ] 用戶偏好學習
+
+**週3-4：性能優化**
+- [ ] 響應時間優化
+- [ ] 並發處理能力
+- [ ] 記憶體使用優化
+- [ ] 錯誤恢復機制
+
+#### 階段2交付物
+- [ ] 高性能推薦系統
+- [ ] 多平台API支持
+- [ ] 用戶體驗報告
+- [ ] 性能測試報告
+
+### 階段3：系統完善與部署（1月-2月）
+
+#### 1月任務（4週）
+**週1-2：系統集成測試**
+- [ ] 端到端測試套件
+- [ ] 壓力測試
+- [ ] 用戶接受度測試
+- [ ] 安全性評估
+
+**週3-4：本地化與國際化**
+- [ ] 繁體中文界面
+- [ ] 簡體中文支持
+- [ ] 英文版本
+- [ ] 多幣種支持
+
+#### 2月任務（4週）
+**週1-2：部署準備**
+- [ ] 容器化部署方案
+- [ ] 雲端服務配置
+- [ ] 監控告警系統
+- [ ] 自動化部署流程
+
+**週3-4：文檔與答辯**
+- [ ] 完整技術文檔
+- [ ] 用戶操作手冊
+- [ ] 答辯簡報準備
+- [ ] 演示環境搭建
+
+#### 階段3交付物
+- [ ] 生產就緒系統
+- [ ] 完整項目文檔
+- [ ] 部署指南
+- [ ] 答辯材料
+
+## 風險管理策略
+
+### 技術風險
+| 風險項目 | 可能性 | 影響程度 | 應對策略 |
+|----------|--------|----------|----------|
+| API獲取困難 | 高 | 高 | 多API備案，自建爬蟲 |
+| 模型訓練資源不足 | 中 | 中 | 雲端服務，預訓練模型 |
+| 學校API不穩定 | 中 | 中 | 原始API備案 |
+
+
+
+## 成功指標（KPI）
+
+### 技術指標
+- [ ] 推薦準確率 > 85%
+- [ ] 系統響應時間 < 3秒
+- [ ] API可用性 > 99%
+- [ ] 用戶滿意度 > 4.0/5.0
+
+### 項目指標
+- [ ] 按時交付率 100%
+- [ ] 代碼覆蓋率 > 80%
+- [ ] 文檔完整度 100%
+- [ ] 演示成功率 100%
+
+## 下一步行動計劃
+
+### 即時任務（本週）
+1. [ ] 完成API錯誤處理機制
+2. [ ] 建立項目測試框架
+3. [ ] 開始淘寶API申請流程
+4. [ ] 下載並預處理Fashion-MNIST
+
+### 短期任務（下週）
+1. [ ] 完善多代理協作機制
+2. [ ] 實現基礎推薦算法
+3. [ ] 建立用戶反饋收集機制
+4. [ ] 準備第一次進度報告
+
+### 長期目標（下月）
+1. [ ] 完成階段1所有交付物
+2. [ ] 建立完整的測試環境
+3. [ ] 獲得初步的用戶反饋
+4. [ ] 準備階段2的詳細計劃
+
+
+============================================================
+FILE PATH: .claude\settings.local.json
+============================================================
+{
+  "permissions": {
+    "allow": [
+      "WebSearch"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
+
+
+============================================================
+FILE PATH: .vs\VSWorkspaceState.json
+============================================================
+{
+  "ExpandedNodes": [
+    ""
+  ],
+  "PreviewInSolutionExplorer": false
+}
+
+
+============================================================
+FILE PATH: agents\agents.py
+============================================================
+from typing import Dict, List
+import concurrent.futures
+from utils.helpers import AgentState, extract_json_from_response, check_budget_exceeded, format_budget_items
+
+# Import API Clients
+from apis.api_clients import HKBUAPIClient
+
+class ManagerAgent:
+    """Manager Agent - Router & Arbitrator"""
+    def __init__(self):
+        self.api_client = HKBUAPIClient()
+
+    def process(self, state: AgentState) -> Dict:
+        print("\n" + "=" * 50)
+        print("[MANAGER AGENT] Starting arbitration process...")
+        print("=" * 50)
+
+        items = state.get('budget_items', [])
+        budget = state['userProfile'].get('預算', 0)
+        retry_count = state.get('retry_count', 0)
+
+        # 1. Safety Mechanism
+        if retry_count >= 3:
+            print("--- Manager: Too many retries, forcing completion ---")
+            return {
+                "router_decision": "FINISH",
+                "manager_decision": "已達最大重試次數，將呈現目前找到的最佳組合。"
+            }
+
+        # 2. Check Constraints
+        if not items:
+            feedback = "找不到任何商品。請嘗試將搜尋關鍵字改為更常見的基礎款單品 (如 'T-shirt', 'Denim')。"
+            return self._trigger_retry(feedback, retry_count)
+
+        # 檢查總金額是否嚴重超支
+        if check_budget_exceeded(items, budget):
+            total_cost = sum(i['price'] for i in items)
+            feedback = f"組合總價 ({total_cost}) 超出預算 ({budget})。請嘗試尋找更平價的替代品，或減少單品數量。"
+            return self._trigger_retry(feedback, retry_count)
+
+        # 3. Success Path
+        print("--- Manager: Budget and style approved ---")
+        return {
+            "router_decision": "FINISH",
+            "manager_decision": "團隊協作成功，已構建完整的預算內穿搭。"
+        }
+
+    def _trigger_retry(self, feedback: str, current_retry: int) -> Dict:
+        print(f"--- Manager: Triggering retry loop -> {feedback} ---")
+        return {
+            "router_decision": "CONTINUE",
+            "manager_feedback": feedback,
+            "retry_count": current_retry + 1
+        }
+
+
+class UserProfilerAgent:
+    """User Profiler Agent"""
+    def __init__(self):
+        self.api_client = HKBUAPIClient()
+
+    def process(self, state: AgentState) -> Dict:
+        print("\n" + "=" * 50)
+        print("[USER PROFILER] Analyzing user requirements...")
+        print("=" * 50)
+        
+        prompt = f"""
+        你是一位使用者分析專家。請解析以下輸入。
+        注意：輸入中可能包含 [SYSTEM_INJECTED_DATA] 區塊，該區塊內的資訊（預算、地點、風格）具有最高優先級。
+
+        使用者輸入: "{state['userInput']}"
+
+        請以JSON格式回傳分析結果：
+        {{
+            "場合": "string",
+            "地點": "string (優先使用 SYSTEM_INJECTED_DATA)",
+            "預算": number (優先使用 SYSTEM_INJECTED_DATA，純數字),
+            "個人偏好": "string"
+        }}
+        """
+
+        messages = [{"role": "user", "content": prompt}]
+        response = self.api_client.call_chatgpt(messages)
+        profile = extract_json_from_response(response)
+
+        if not profile or not isinstance(profile, dict):
+            profile = {
+                "場合": "一般",
+                "地點": "Hong Kong",
+                "預算": 500,
+                "個人偏好": "Casual"
+            }
+
+        print(f"  [USER PROFILER] Output: {profile}")
+        return {"userProfile": profile}
+
+
+class AestheticStylistAgent:
+    """
+    Aesthetic Stylist Agent - Decomposed Search Strategy
+    Generates 3 parallel search queries for a complete outfit.
+    """
+    def __init__(self):
+        self.api_client = HKBUAPIClient()
+
+    def process(self, state: AgentState) -> Dict:
+        print("\n" + "=" * 50)
+        print("[AESTHETIC STYLIST] Generating outfit plan...")
+        print("=" * 50)
+
+        feedback = state.get('manager_feedback', "")
+        context_instruction = f"注意：上一次失敗回饋：{feedback}。請簡化關鍵字。" if feedback else "請規劃一套完整的全身穿搭。"
+
+        # Generate 3 specific Japanese keywords
+        prompt = f"""
+        你是一位日本潮流造型師。請為使用者規劃一套完整的 OOTD (Outfit of the Day)。
+        
+        使用者輪廓: {state['userProfile']}
+        任務上下文: {context_instruction}
+
+        【搜尋策略 - 針對 Rakuten Japan】
+        我們需要將預算分配給 2-3 件單品來組成一套衣服。請生成 **3 個** 具體的日文搜尋關鍵字。
+        
+        1. **Top (上身)**: 如 "オーバーサイズ Tシャツ" (Oversized T-shirt)
+        2. **Bottom (下身)**: 如 "ワイドパンツ" (Wide pants)
+        3. **Shoes/Acc (鞋/配件)**: 如 "スニーカー" (Sneakers) 或 "キャップ" (Cap)
+
+        請以 JSON 格式回傳 (List string):
+        {{
+          "style_suggestion": "給使用者的中文風格建議...",
+          "search_queries": ["上身日文關鍵字", "下身日文關鍵字", "配件日文關鍵字"]
+        }}
+        """
+
+        messages = [{"role": "user", "content": prompt}]
+        response = self.api_client.call_chatgpt(messages)
+        result = extract_json_from_response(response)
+
+        style = result.get('style_suggestion', 'Fashion Style')
+        queries = result.get('search_queries', ['トップス', 'パンツ', '小物'])
+        
+        if isinstance(queries, str):
+            queries = [queries]
+
+        print(f"  [STYLIST] Plan: {queries}")
+
+        return {
+            "style_suggestion": style,
+            "search_queries": queries
+        }
+
+class BudgetPlannerAgent:
+    """
+    Budget Planner Agent - Parallel Execution
+    Uses ThreadPoolExecutor to call Rakuten API in parallel for faster results.
+    """
+
+    def __init__(self):
+        from apis.api_clients import RakutenAPI 
+        self.rakuten_api = RakutenAPI()
+
+    def process(self, state: AgentState) -> Dict:
+        print("\n" + "=" * 50)
+        print("[BUDGET PLANNER] Executing parallel decomposed search...")
+        print("=" * 50)
+
+        total_budget = state['userProfile'].get('預算', 999999)
+        queries = state.get('search_queries', [])
+        
+        if not queries:
+            queries = ['dress']
+
+        # Budget Allocation: 40% Top, 30% Bottom, 30% Acc (approx)
+        # Using 60% as a loose upper bound for each item to find good candidates
+        item_budget_limit = int(total_budget * 0.6) 
+
+        print(f"  Total Budget: ${total_budget} HKD | Queries: {queries}")
+
+        collected_items = []
+
+        # Helper for parallel execution
+        def search_single_item(query):
+            try:
+                # print(f"    -> Searching: '{query}'")
+                results = self.rakuten_api.search_products(query, item_budget_limit)
+                if results:
+                    return results[0] # Pick the best match
+            except Exception as e:
+                print(f"    -> Error searching '{query}': {e}")
+            return None
+
+        # PARALLEL EXECUTION starts here
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            future_to_query = {executor.submit(search_single_item, q): q for q in queries}
+            for future in concurrent.futures.as_completed(future_to_query):
+                item = future.result()
+                if item:
+                    collected_items.append(item)
+        
+        print(f"  [BUDGET] Successfully gathered {len(collected_items)} items.")
+        
+        return {"budget_items": collected_items}
+
+
+class ContextAdvisorAgent:
+    """Context Advisor Agent"""
+    def __init__(self):
+        self.api_client = HKBUAPIClient()
+        from apis.api_clients import WeatherAPI
+        self.weather_api = WeatherAPI()
+
+    def process(self, state: AgentState) -> Dict:
+        print("\n" + "=" * 50)
+        print("[CONTEXT ADVISOR] Fetching weather & context data...")
+        print("=" * 50)
+
+        weather = self.weather_api.get_hko_weather_forecast()
+        
+        prompt = f"""
+        你是一位情境顧問。
+        使用者輪廓: {state['userProfile']}
+        當地天氣: {weather}
+        
+        請提供簡短的材質或穿搭建議。
+        """
+
+        messages = [{"role": "user", "content": prompt}]
+        advice = self.api_client.call_chatgpt(messages)
+        
+        print(f"  [CONTEXT] Advice: {advice.strip()[:50]}...")
+        return {"context_advice": advice.strip()}
+
+
+class RecommendationSynthesizerAgent:
+    """Synthesizer Agent"""
+    def __init__(self):
+        self.api_client = HKBUAPIClient()
+
+    def process(self, state: AgentState) -> Dict:
+        print("\n" + "=" * 50)
+        print("[SYNTHESIZER] Generating final recommendation...")
+        print("=" * 50)
+
+        items_info = format_budget_items(state.get('budget_items', []))
+        
+        prompt = f"""
+        你是一位專業的個人購物助理。請為使用者生成一份結構清晰的穿搭提案。
+        
+        【輸入資訊】
+        1. 造型師建議: {state.get('style_suggestion', '')}
+        2. 商品清單 (這是一整套穿搭): {items_info}
+        3. 天氣建議: {state.get('context_advice', '')}
+        
+        【輸出格式要求】
+        請使用 Markdown 格式，嚴格遵守以下結構：
+        
+        ### 🌤️ 天氣與情境分析
+        (簡短說明為何這樣搭配適合當前天氣)
+
+        ### 👕 全身穿搭推薦 (OOTD)
+        (請將商品清單中的單品組合成一套故事，例如："上身穿著...搭配...")
+        - **[商品名稱](商品連結)**：單品亮點介紹。
+        
+        ### 💡 搭配技巧
+        (如何將這幾件單品穿得更好看)
+
+        注意：請將長網址格式化為 `[商品名稱](URL)` 的超連結形式。
+        """
+
+        messages = [{"role": "user", "content": prompt}]
+        recommendation = self.api_client.call_chatgpt(messages)
+        
+        print(f"  [SYNTHESIZER] Done. Length: {len(recommendation)}")
+        return {"final_recommendation": recommendation}
+
+
+============================================================
+FILE PATH: agents\__init__.py
+============================================================
+# Agents module
+
+
+============================================================
+FILE PATH: apis\api_clients.py
+============================================================
+import requests
+import os
+from typing import Dict, List, Any
+
+
+class HKBUAPIClient:
+    """API client for Official Google Gemini API and OpenAI ChatGPT"""
+
+    def __init__(self):
+        # Official Google Gemini API
+        self.gemini_api_key = os.getenv("GEMINI_API_KEY")
+        self.gemini_base_url = "https://generativelanguage.googleapis.com/v1beta"
+
+        # OpenAI API for ChatGPT
+        self.openai_api_key = os.getenv("HKBU_API_KEY")
+        self.openai_base_url = "https://genai.hkbu.edu.hk/api/v0/rest"
+
+    def call_gemini(self, prompt: str, model: str = "gemini-3-pro-preview", temperature: float = 0.7) -> str:
+        """Call Official Google Gemini API"""
+        try:
+            url = f"{self.gemini_base_url}/models/{model}:generateContent"
+            headers = {
+                "x-goog-api-key": self.gemini_api_key,
+                "Content-Type": "application/json",
+            }
+
+            # Official Gemini API format
+            payload = {
+                "contents": [
+                    {
+                        "parts": [
+                            {
+                                "text": prompt
+                            }
+                        ]
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": temperature,
+                    "maxOutputTokens": 2048,
+                    "topP": 1,
+                }
+            }
+
+            print(f"  [GEMINI API] Calling {model}...")
+            response = requests.post(url, json=payload, headers=headers, timeout=300)
+            print(f"  [GEMINI API] Response status: {response.status_code}")
+
+            if response.status_code != 200:
+                print(f"  [GEMINI API] Error: {response.text[:200]}")
+                return self._fallback_gemini(prompt, temperature)
+
+            response.raise_for_status()
+            result = response.json()
+
+            # Parse official Gemini response format
+            if 'candidates' in result and len(result['candidates']) > 0:
+                candidate = result['candidates'][0]
+                if 'content' in candidate and 'parts' in candidate['content']:
+                    parts = candidate['content']['parts']
+                    if len(parts) > 0 and 'text' in parts[0]:
+                        return parts[0]['text']
+
+            print(f"  [GEMINI API] Unexpected response format: {str(result)[:200]}")
+            return "Error: Unexpected response format from Gemini API"
+
+        except Exception as e:
+            try:
+                print(f"  [GEMINI API] Error: {e}")
+            except UnicodeEncodeError:
+                print(f"  [GEMINI API] Error: {type(e).__name__}")
+            return self._fallback_gemini(prompt, temperature)
+
+    def call_chatgpt(self, messages: List[Dict], model: str = "qwen3-max", temperature: float = 0.7) -> str:
+        """Call Official OpenAI ChatGPT API"""
+        try:
+            url = f"{self.openai_base_url}/deployments/{model}/chat/completions?api-version=v1"
+            headers = {
+                "api-key": self.openai_api_key,
+                "Content-Type": "application/json",
+            }
+
+            payload = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": 1000,
+            }
+
+            print(f"  [OPENAI API] Calling {model}...")
+            response = requests.post(url, json=payload, headers=headers, timeout=300)
+            print(f"  [OPENAI API] Response status: {response.status_code}")
+
+            if response.status_code != 200:
+                print(f"  [OPENAI API] Error: {response.text[:200]}")
+                return self._fallback_chatgpt(messages, temperature)
+
+            response.raise_for_status()
+            result = response.json()
+
+            if 'choices' in result and len(result['choices']) > 0:
+                return result['choices'][0]['message']['content']
+            else:
+                return "Error: No response from ChatGPT API"
+
+        except Exception as e:
+            try:
+                print(f"  [OPENAI API] Error: {e}")
+            except UnicodeEncodeError:
+                print(f"  [OPENAI API] Error: {type(e).__name__}")
+            return self._fallback_chatgpt(messages, temperature)
+
+    def _fallback_gemini(self, prompt: str, temperature: float) -> str:
+        """Fallback to LangChain Gemini"""
+        try:
+            print("  [GEMINI] Using LangChain fallback...")
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            model = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=temperature)
+            response = model.invoke(prompt)
+            return response.content
+        except Exception as e:
+            return f"Fallback Gemini Error: {e}"
+
+    def _fallback_chatgpt(self, messages: List[Dict], temperature: float) -> str:
+        """Fallback to LangChain OpenAI"""
+        try:
+            print("  [OPENAI] Using LangChain fallback...")
+            from langchain_openai import ChatOpenAI
+            model = ChatOpenAI(model="gpt-4o-mini", temperature=temperature)
+            if len(messages) > 0:
+                response = model.invoke(messages[-1]['content'])
+                return response.content
+            return "No messages provided"
+        except Exception as e:
+            return f"Fallback ChatGPT Error: {e}"
+
+
+class WeatherAPI:
+    """Hong Kong Observatory Weather API"""
+
+    @staticmethod
+    def get_hko_weather_forecast():
+        """Get 9-day weather forecast from Hong Kong Observatory"""
+        print("--- TOOL CALL: Calling Hong Kong Observatory API... ---")
+        url = "https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=fnd&lang=tc"
+        try:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+
+            forecast_summary = "Weather forecast for next 2 days:\n"
+            for forecast in data['weatherForecast'][:2]:
+                date = forecast['forecastDate']
+                week = forecast['week']
+                temp = f"{forecast['forecastMintemp']['value']} - {forecast['forecastMaxtemp']['value']} C"
+                weather = forecast['forecastWeather']
+                forecast_summary += f"- {date} ({week}): {weather}, Temp {temp}\n"
+            return forecast_summary
+        except requests.exceptions.RequestException as e:
+            print(f"Error: Failed to get weather info: {e}")
+            return "Unable to get weather information. Please try again later."
+
+
+class RakutenAPI:
+    """Rakuten Ichiba Product Search API (樂天市場商品搜尋 - HKD Version)"""
+
+    # Rakuten API Endpoint (Version 20170706 is the standard stable version)
+    BASE_URL = "https://app.rakuten.co.jp/services/api/IchibaItem/Search/20170706"
+    
+    # Approximate Exchange Rates (Fixed for demo purposes)
+    # In production, you might want to fetch live rates.
+    # 1 JPY = ~0.051 HKD (as of late 2024/early 2025 estimation)
+    JPY_TO_HKD_RATE = 0.051
+    # 1 HKD = ~19.6 JPY
+    HKD_TO_JPY_RATE = 19.6
+
+    @staticmethod
+    def search_products(search_query: str, max_price: int) -> List[Dict]:
+        """
+        Search products using Rakuten Ichiba API with HKD pricing.
+        
+        Args:
+            search_query (str): The keyword to search (e.g., "dress", "kimono").
+            max_price (int): Maximum price in HKD.
+        """
+        # Convert input max_price (HKD) to JPY for the API
+        max_price_jpy = int(max_price * RakutenAPI.HKD_TO_JPY_RATE)
+        
+        print(f"--- TOOL CALL: Calling Rakuten API (search: '{search_query}', max price: {max_price} HKD -> approx. {max_price_jpy} JPY)... ---")
+        
+        # 1. Get Application ID (API Key)
+        # Make sure to set this in your environment variables
+        # Note: Rakuten Application ID is typically a ~19 digit number (e.g., 10192837465...)
+        app_id = os.getenv("RAKUTEN_APP_ID")
+        if not app_id:
+            print("Error: RAKUTEN_APP_ID environment variable is missing.")
+            return []
+
+        # 2. Set Parameters
+        # Documentation: https://webservice.rakuten.co.jp/documentation/ichiba-item-search
+        params = {
+            'applicationId': app_id,
+            'keyword': search_query,      # Search keyword
+            'maxPrice': max_price_jpy,    # API requires JPY
+            'sort': '+itemPrice',         # Sort by price ascending (low to high)
+            'format': 'json',             # Response format
+            'hits': 5,                    # Number of results to return
+            'imageFlag': 1                # Only return items with images
+        }
+
+        try:
+            # 3. Make the Request
+            response = requests.get(RakutenAPI.BASE_URL, params=params, timeout=15)
+            
+            # Improved Error Handling: Check for API error messages explicitly
+            if response.status_code != 200:
+                try:
+                    error_data = response.json()
+                    error_desc = error_data.get('error_description', 'Unknown API error')
+                    error_code = error_data.get('error', str(response.status_code))
+                    print(f"Error: Rakuten API returned error: {error_code} - {error_desc}")
+                    print(f"Hint: Check if your App ID '{app_id[:4]}...' is correct and valid.")
+                except ValueError:
+                    # If response isn't JSON
+                    print(f"Error: Rakuten API failed with status code: {response.status_code}")
+                return []
+            
+            # 4. Parse the Response
+            data = response.json()
+            
+            # Rakuten returns a list under 'Items'. 
+            # Each element is a wrapper dict: {'Item': { ...product data... }}
+            items_wrapper = data.get('Items', [])
+            
+            filtered_items = []
+            
+            for wrapper in items_wrapper:
+                item = wrapper.get('Item', {})
+                
+                title = item.get('itemName')
+                price_jpy = item.get('itemPrice')
+                
+                # Double check validity
+                if title and price_jpy:
+                    # Convert JPY price to HKD for display
+                    price_hkd = round(price_jpy * RakutenAPI.JPY_TO_HKD_RATE, 2)
+                    
+                    # Construct clean item dictionary
+                    filtered_items.append({
+                        "name": title,
+                        "price": price_hkd,
+                        "currency": "HKD",     # Display as HKD
+                        "original_price_jpy": price_jpy, # Keep original price for reference
+                        "seller": item.get('shopName', 'Unknown Shop'),
+                        "link": item.get('itemUrl', ''),
+                        "image": item.get('mediumImageUrls', [{}])[0].get('imageUrl', '') # Get first image if available
+                    })
+
+            print(f"--- TOOL RESULT: Rakuten API found {len(filtered_items)} products ---")
+            return filtered_items
+
+        except requests.exceptions.RequestException as e:
+            print(f"Error: Rakuten API connection failed: {e}")
+            return []
+        except ValueError as e:
+            print(f"Error: JSON parsing failed: {e}")
+            return []
+
+
+============================================================
+FILE PATH: apis\nano_banana_client.py
+============================================================
+import base64
+import io
+import os
+import re
+import textwrap
+from typing import Any, Dict, List, Optional, Union
+
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+from PIL import Image, ImageDraw, ImageFont
+
+
+class NanoBananaClient:
+    """Client for image generation using Nano Banana API (OpenAI-compatible format)."""
+
+    def __init__(self):
+        # Nano Banana API (OpenAI-compatible)
+        self.api_key = os.getenv("NANO_BANANA_API_KEY")
+        self.base_url = os.getenv("NANO_BANANA_BASE_URL", "https://newapi.pockgo.com")
+        
+        # Setup Session with Retry Logic (修復連線不穩問題)
+        self.session = requests.Session()
+        retries = Retry(
+            total=3,                # 最多重試 3 次
+            backoff_factor=1,       # 每次重試間隔 (1s, 2s, 4s...)
+            status_forcelist=[500, 502, 503, 504], # 針對這些伺服器錯誤重試
+            allowed_methods=["POST"],
+            raise_on_status=False
+        )
+        self.session.mount("https://", HTTPAdapter(max_retries=retries))
+        
+        # Use gemini-2.5-flash-image-preview for image generation
+        self.model = "gemini-3-pro-image-preview"
+
+    # --------------------------------------------------------------------- #
+    # Public API
+    # --------------------------------------------------------------------- #
+    def generate_ootd_diagram(
+        self,
+        prompt: str,
+        reference_style: Optional[str] = None,
+        reference_image: Optional[bytes] = None,
+    ) -> Dict[str, Any]:
+        """Create an intermediate OOTD diagram using Gemini image generation."""
+
+        style_context = reference_style or "Modern Streetwear"
+
+        full_prompt = (
+            f"Create a professional fashion **flat lay photography (knolling)** of a coordinated outfit. "
+            f"Subject: {prompt}. "
+            f"Style Aesthetic: {style_context}. "
+            "Composition: **Top-down 90-degree view**, items are neatly arranged in a balanced **grid layout** on a clean, neutral background (light grey or white). "
+            "Lighting: Soft, diffuse studio lighting to show fabric textures clearly. "
+            "Constraints: **No human models**, no mannequins, no body parts. Just the clothing items and accessories laid out organized."
+        )
+
+        if self._is_remote_enabled:
+            result = self._generate_image(full_prompt, reference_image)
+            if result:
+                return result
+            print("--- Nano Banana: Remote API failed, using fallback stub ---")
+
+        return self._generate_stub_diagram(prompt, reference_style)
+
+    def blend_user_with_diagram(
+        self,
+        user_image: bytes,
+        diagram_image_data: Optional[str],
+        promo_prompt: str,
+    ) -> Dict[str, Any]:
+        """
+        Task: Virtual Try-On.
+        Takes the user (Image 1) and makes them wear the outfit from the diagram (Image 2).
+        """
+
+        base_instruction = (
+            "**Virtual Try-On Task**: "
+            "Generate a realistic photo of the person from the first image wearing the exact outfit shown in the second image. "
+            "1. **Identity**: Preserve the person's face, body shape, and pose from Image 1 exactly. "
+            "2. **Outfit**: Transfer all clothing items (jacket, top, pants, shoes, accessories) from Image 2 onto the person. "
+            "3. **Style**: Outdoor street fashion photography, natural lighting, realistic fabric folds and fit. "
+            "4. **Quality**: High resolution, photorealistic, cinematic depth of field."
+        )
+
+        final_prompt = f"{base_instruction} Additional Context: {promo_prompt}"
+
+        if self._is_remote_enabled:
+            # Pass both user image and diagram image
+            input_images: List[Union[bytes, str]] = [user_image]
+            if diagram_image_data:
+                input_images.append(diagram_image_data)
+
+            result = self._generate_image(final_prompt, input_images)
+            if result:
+                return result
+            print("--- Nano Banana: Remote API failed, using fallback stub ---")
+
+        return self._generate_stub_final(user_image, diagram_image_data)
+
+    # --------------------------------------------------------------------- #
+    # Internal helpers
+    # --------------------------------------------------------------------- #
+    @property
+    def _is_remote_enabled(self) -> bool:
+        return bool(self.api_key and self.base_url)
+
+    def _generate_image(
+        self,
+        prompt: str,
+        reference_images: Optional[Union[bytes, List[Union[bytes, str]]]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Call Nano Banana API (OpenAI-compatible format) for image generation."""
+        url = f"{self.base_url}/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        # Build content array for OpenAI-compatible format
+        content = [{"type": "text", "text": prompt}]
+
+        # Handle reference images (can be single bytes or list of bytes/data URIs)
+        if reference_images:
+            images_list = reference_images if isinstance(reference_images, list) else [reference_images]
+
+            for img in images_list:
+                if isinstance(img, bytes):
+                    img_base64 = base64.b64encode(img).decode()
+                    img_url = f"data:image/jpeg;base64,{img_base64}"
+                    content.append({
+                        "type": "image_url",
+                        "image_url": {"url": img_url}
+                    })
+                elif isinstance(img, str) and img.startswith("data:"):
+                    content.append({
+                        "type": "image_url",
+                        "image_url": {"url": img}
+                    })
+                # If it's a remote URL (e.g. from previous step), pass it directly
+                elif isinstance(img, str) and img.startswith("http"):
+                     content.append({
+                        "type": "image_url",
+                        "image_url": {"url": img}
+                    })
+
+        # OpenAI-compatible payload
+        payload = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": content
+                }
+            ],
+            "max_tokens": 4096,
+            "temperature": 0.7
+        }
+
+        print(f"  [NANO BANANA API] Calling {url} with model {self.model}...")
+
+        try:
+            # Increased timeout to 240s for stability
+            response = self.session.post(url, json=payload, headers=headers, timeout=240)
+            
+            if response.status_code != 200:
+                print(f"  [NANO BANANA API] Error: Status {response.status_code} - {response.text[:300]}")
+                return None
+
+            result = response.json()
+
+            # Parse OpenAI-compatible response format
+            if 'choices' in result and len(result['choices']) > 0:
+                choice = result['choices'][0]
+                message = choice.get('message', {})
+                msg_content = message.get('content', '')
+
+                # Check if content is a string (could be base64 image or URL OR Markdown)
+                if isinstance(msg_content, str):
+                    # FIX: Handle Markdown image format ![alt](url)
+                    markdown_match = re.search(r'!\[.*?\]\((.*?)\)', msg_content)
+                    if markdown_match:
+                        img_url = markdown_match.group(1)
+                        print(f"  [NANO BANANA API] Image URL extracted from markdown: {img_url}")
+                        return {
+                            "image_data": None,
+                            "image_url": img_url,
+                            "prompt": prompt,
+                        }
+                    
+                    if msg_content.startswith('data:image'):
+                        print(f"  [NANO BANANA API] Image data received (base64)")
+                        return {
+                            "image_data": msg_content,
+                            "image_url": None,
+                            "prompt": prompt,
+                        }
+                    elif msg_content.startswith('http'):
+                        print(f"  [NANO BANANA API] Image URL received")
+                        return {
+                            "image_data": None,
+                            "image_url": msg_content,
+                            "prompt": prompt,
+                        }
+
+                # Check if content is a list (multimodal response)
+                if isinstance(msg_content, list):
+                    for item in msg_content:
+                        if isinstance(item, dict):
+                            # Check for image type
+                            if item.get('type') == 'image':
+                                img_data = item.get('image', {}).get('data') or item.get('data')
+                                if img_data:
+                                    print(f"  [NANO BANANA API] Image generated successfully")
+                                    return {
+                                        "image_data": f"data:image/png;base64,{img_data}",
+                                        "image_url": None,
+                                        "prompt": prompt,
+                                    }
+                            # Check for image_url type
+                            elif item.get('type') == 'image_url':
+                                img_url = item.get('image_url', {}).get('url')
+                                if img_url:
+                                    print(f"  [NANO BANANA API] Image URL received")
+                                    return {
+                                        "image_data": img_url if img_url.startswith('data:') else None,
+                                        "image_url": img_url if img_url.startswith('http') else None,
+                                        "prompt": prompt,
+                                    }
+
+                # Log text response if no image found
+                print(f"  [NANO BANANA API] Response (no image): {str(msg_content)[:200]}...")
+
+            return None
+
+        except requests.exceptions.RequestException as e:
+            # 這是您遇到的錯誤類型
+            print(f"  [NANO BANANA API] Connection Error (Retries failed): {e}")
+            return None
+        except Exception as e:
+            print(f"  [NANO BANANA API] Unexpected Error: {type(e).__name__}: {e}")
+            return None
+
+    def _generate_stub_diagram(self, prompt: str, reference_style: Optional[str]) -> Dict[str, Any]:
+        width, height = 768, 1024
+        canvas = Image.new("RGB", (width, height), "#111827")
+        draw = ImageDraw.Draw(canvas)
+
+        title_font = self._load_font(42)
+        body_font = self._load_font(24)
+
+        draw.text((40, 40), "OOTD Diagram", fill="#fcd34d", font=title_font)
+        if reference_style:
+            draw.text((40, 110), f"Style: {reference_style}", fill="#fef3c7", font=body_font)
+
+        wrapped = textwrap.fill(prompt, width=32)
+        draw.multiline_text((40, 180), wrapped, fill="#d1d5db", font=body_font, spacing=6)
+
+        encoded = self._encode_data_uri(canvas)
+        return {
+            "image_data": encoded,
+            "image_url": None,
+            "prompt": prompt,
+        }
+
+    def _generate_stub_final(self, user_image: bytes, diagram_image_data: Optional[str]) -> Dict[str, Any]:
+        # Load or fallback to a gradient canvas
+        try:
+            base_img = Image.open(io.BytesIO(user_image)).convert("RGB")
+        except Exception:
+            base_img = Image.new("RGB", (768, 1024), "#1f2937")
+
+        base_img = base_img.resize((768, 1024))
+        overlay = Image.new("RGBA", base_img.size, (15, 23, 42, 140))
+        composed = Image.alpha_composite(base_img.convert("RGBA"), overlay)
+
+        draw = ImageDraw.Draw(composed)
+        title_font = self._load_font(36)
+        draw.text((32, 32), "Final OOTD Preview", fill="#fef3c7", font=title_font)
+
+        if diagram_image_data:
+            try:
+                # Handle URL vs Base64 stub
+                if diagram_image_data.startswith("http"):
+                    # For stub purposes, just draw text "URL Image"
+                    draw.text((480, 600), "Diagram URL\nLinked", fill="#fff", font=title_font)
+                else:
+                    header, b64 = diagram_image_data.split(",", 1)
+                    diag_bytes = base64.b64decode(b64)
+                    diag_img = Image.open(io.BytesIO(diag_bytes)).resize((256, 342))
+                    composed.paste(diag_img, (480, 640))
+            except Exception:
+                pass
+
+        encoded = self._encode_data_uri(composed.convert("RGB"))
+        return {
+            "image_data": encoded,
+            "image_url": None,
+        }
+
+    @staticmethod
+    def _encode_data_uri(image: Image.Image) -> str:
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        b64 = base64.b64encode(buffer.getvalue()).decode()
+        return f"data:image/png;base64,{b64}"
+
+    @staticmethod
+    def _load_font(size: int) -> ImageFont.FreeTypeFont:
+        try:
+            return ImageFont.truetype("arial.ttf", size)
+        except OSError:
+            return ImageFont.load_default()
+
+
+============================================================
+FILE PATH: apis\__init__.py
+============================================================
+# APIs module
+
+
+============================================================
+FILE PATH: front end\index.js
+============================================================
+import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  Upload, 
+  Sparkles, 
+  Zap, 
+  Share2, 
+  RefreshCcw, 
+  Shirt, 
+  Palette, 
+  Maximize2,
+  CheckCircle2,
+  ScanLine,
+  MessageSquare,
+  Send,
+  User,
+  Bot
+} from 'lucide-react';
+
+// --- Mock Data ---
+const MOCK_RESULT = {
+  outfit_score: 98,
+  vibe_match: "Neo-Tokyo Streetwear",
+  color_palette: ["#E0B0FF", "#00FFFF", "#1A1A1A", "#FF00FF"],
+  analysis: [
+    { label: "Silhouette", value: "Oversized / Boxy", score: 92 },
+    { label: "Texture Match", value: "Leather + Techwear", score: 88 },
+    { label: "Seasonality", value: "FW 2025", score: 95 }
+  ],
+  items: [
+    { name: "Cyber-Bomber Jacket", brand: "Acronym X", price: "$450" },
+    { name: "Utility Cargo", brand: "Stone Island", price: "$320" },
+  ]
+};
+
+// --- Components ---
+
+const GlassCard = ({ children, className = "", delay = 0 }) => (
+  <motion.div 
+    initial={{ opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ duration: 0.5, delay, ease: "easeOut" }}
+    className={`relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-2xl ${className}`}
+  >
+    {/* Shine effect */}
+    <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none" />
+    <div className="relative z-10 h-full">
+      {children}
+    </div>
+  </motion.div>
+);
+
+const Pill = ({ label, active, onClick }) => (
+  <button
+    onClick={onClick}
+    className={`px-6 py-2 rounded-full text-sm font-medium transition-all duration-300 border ${
+      active 
+        ? "bg-purple-500/20 border-purple-400 text-purple-200 shadow-[0_0_15px_rgba(168,85,247,0.3)]" 
+        : "bg-white/5 border-white/10 text-gray-400 hover:bg-white/10 hover:border-white/20"
+    }`}
+  >
+    {label}
+  </button>
+);
+
+const ProgressBar = ({ label, percentage, color = "bg-purple-500" }) => (
+  <div className="mb-4">
+    <div className="flex justify-between text-xs font-medium text-gray-400 mb-1">
+      <span>{label}</span>
+      <span>{percentage}%</span>
+    </div>
+    <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
+      <motion.div 
+        initial={{ width: 0 }}
+        animate={{ width: `${percentage}%` }}
+        transition={{ duration: 1, delay: 0.5 }}
+        className={`h-full ${color} shadow-[0_0_10px_currentColor]`}
+      />
+    </div>
+  </div>
+);
+
+const ChatMessage = ({ role, text }) => (
+  <motion.div 
+    initial={{ opacity: 0, x: role === 'ai' ? -10 : 10 }}
+    animate={{ opacity: 1, x: 0 }}
+    className={`flex gap-3 mb-4 ${role === 'user' ? 'flex-row-reverse' : ''}`}
+  >
+    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+      role === 'ai' ? 'bg-purple-500/20 text-purple-300' : 'bg-white/10 text-white'
+    }`}>
+      {role === 'ai' ? <Bot size={16} /> : <User size={16} />}
+    </div>
+    <div className={`p-3 rounded-2xl text-sm max-w-[80%] ${
+      role === 'ai' 
+        ? 'bg-purple-500/10 border border-purple-500/20 text-gray-200 rounded-tl-none' 
+        : 'bg-white/10 border border-white/10 text-white rounded-tr-none'
+    }`}>
+      {text}
+    </div>
+  </motion.div>
+);
+
+export default function FashionAIApp() {
+  const [appState, setAppState] = useState('input'); // input, loading, result
+  const [selectedStyle, setSelectedStyle] = useState('Streetwear');
+  const [uploadedImage, setUploadedImage] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef(null);
+  
+  // Chat State
+  const [userRequest, setUserRequest] = useState('');
+  const [chatInput, setChatInput] = useState('');
+  const [chatHistory, setChatHistory] = useState([]);
+  const chatEndRef = useRef(null);
+
+  // Auto-scroll chat
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatHistory, appState]);
+
+  // Simulation of "AI Processing"
+  const handleGenerate = () => {
+    if (!uploadedImage) return;
+    setAppState('loading');
+    
+    // Seed the initial analysis message based on inputs
+    const initialAnalysis = `I've analyzed your upload. Given your preference for ${selectedStyle} ${userRequest ? `and request for "${userRequest}"` : ''}, I've constructed a look that balances structural utility with modern aesthetics. The palette is derived from the mid-tones of your item to ensure cohesion.`;
+    
+    setTimeout(() => {
+      setChatHistory([
+        { role: 'ai', text: initialAnalysis }
+      ]);
+      setAppState('result');
+    }, 3500);
+  };
+
+  const handleReset = () => {
+    setAppState('input');
+    setUploadedImage(null);
+    setUserRequest('');
+    setChatHistory([]);
+  };
+
+  const handleFile = (file) => {
+    if (file) {
+      const url = URL.createObjectURL(file);
+      setUploadedImage(url);
+    }
+  };
+
+  const handleSendMessage = (e) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+
+    const newMsg = { role: 'user', text: chatInput };
+    setChatHistory(prev => [...prev, newMsg]);
+    setChatInput('');
+
+    // Simulate AI response
+    setTimeout(() => {
+      setChatHistory(prev => [...prev, { 
+        role: 'ai', 
+        text: "That's a great adjustment. Swapping the textures would definitely lean more into the avant-garde aesthetic you mentioned. I can update the visualization if you'd like?" 
+      }]);
+    }, 1500);
+  };
+
+  return (
+    <div className="min-h-screen w-full bg-[#0a0a0f] text-white font-sans selection:bg-purple-500/30 overflow-x-hidden">
+      
+      {/* Background Ambience */}
+      <div className="fixed inset-0 pointer-events-none">
+        <div className="absolute top-[-10%] left-[-10%] w-[50vw] h-[50vw] bg-purple-900/20 rounded-full blur-[120px]" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[50vw] h-[50vw] bg-blue-900/10 rounded-full blur-[120px]" />
+        <div className="absolute top-[20%] right-[20%] w-[30vw] h-[30vw] bg-pink-900/10 rounded-full blur-[100px]" />
+        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20" />
+      </div>
+
+      <main className="relative z-10 max-w-7xl mx-auto px-4 py-8 lg:py-12 flex flex-col min-h-screen">
+        
+        {/* Header */}
+        <header className="flex justify-between items-center mb-12">
+          <div className="flex items-center gap-2">
+            <div className="w-10 h-10 bg-gradient-to-tr from-purple-500 to-cyan-500 rounded-xl flex items-center justify-center shadow-lg shadow-purple-500/20">
+              <Sparkles className="text-white w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-400">
+                AURA <span className="font-light">STYLIST</span>
+              </h1>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-gray-500">Gen-AI Fashion Engine v2.5</p>
+            </div>
+          </div>
+          <button className="p-2 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 transition-colors">
+            <Maximize2 className="w-5 h-5 text-gray-400" />
+          </button>
+        </header>
+
+        {/* Content Switcher */}
+        <div className="flex-1 flex flex-col justify-center">
+          <AnimatePresence mode="wait">
+            
+            {/* STATE: INPUT */}
+            {appState === 'input' && (
+              <motion.div 
+                key="input"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, filter: "blur(10px)", scale: 1.05 }}
+                transition={{ duration: 0.5 }}
+                className="w-full max-w-5xl mx-auto"
+              >
+                <div className="text-center mb-10">
+                  <h2 className="text-4xl md:text-6xl font-bold mb-4 bg-gradient-to-b from-white via-white to-gray-500 bg-clip-text text-transparent">
+                    Redefine Your Wardrobe.
+                  </h2>
+                  <p className="text-gray-400 text-lg max-w-2xl mx-auto">
+                    Upload a piece you love. Our AI orchestrates the perfect outfit around it using 2025 trend forecasting.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-auto lg:h-[650px]">
+                  
+                  {/* Left: Upload Zone */}
+                  <div className="lg:col-span-7 h-full">
+                    <GlassCard className="h-full flex flex-col p-1 group cursor-pointer transition-all hover:border-purple-500/30">
+                      <div 
+                        className={`
+                          flex-1 border-2 border-dashed rounded-[20px] transition-all duration-300 relative overflow-hidden
+                          flex flex-col items-center justify-center
+                          ${isDragging || uploadedImage ? 'border-purple-500/50 bg-purple-500/5' : 'border-white/10 hover:border-white/20 hover:bg-white/5'}
+                        `}
+                        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                        onDragLeave={() => setIsDragging(false)}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setIsDragging(false);
+                          handleFile(e.dataTransfer.files[0]);
+                        }}
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <input 
+                          type="file" 
+                          ref={fileInputRef}
+                          className="hidden" 
+                          accept="image/*"
+                          onChange={(e) => handleFile(e.target.files[0])}
+                        />
+
+                        {uploadedImage ? (
+                          <div className="relative w-full h-full">
+                            <img src={uploadedImage} alt="Uploaded" className="w-full h-full object-cover" />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex items-end p-6">
+                              <div className="flex items-center gap-2 text-white">
+                                <CheckCircle2 className="text-green-400 w-5 h-5" />
+                                <span className="font-medium">Image Uploaded Successfully</span>
+                              </div>
+                            </div>
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); setUploadedImage(null); }}
+                              className="absolute top-4 right-4 p-2 bg-black/50 backdrop-blur-md rounded-full text-white/70 hover:text-white"
+                            >
+                              <RefreshCcw className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="text-center p-8">
+                            <div className="w-20 h-20 mx-auto bg-gradient-to-br from-purple-500/20 to-blue-500/10 rounded-full flex items-center justify-center mb-6 ring-1 ring-white/10">
+                              <Upload className="w-8 h-8 text-purple-300" />
+                            </div>
+                            <h3 className="text-xl font-medium text-white mb-2">Drop your image here</h3>
+                            <p className="text-gray-500 text-sm mb-6">Support for JPG, PNG (Max 10MB)</p>
+                            <span className="inline-block px-4 py-2 rounded-lg bg-white/10 text-white/80 text-sm hover:bg-white/20 transition-colors">
+                              Browse Files
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </GlassCard>
+                  </div>
+
+                  {/* Right: Controls */}
+                  <div className="lg:col-span-5 flex flex-col gap-6">
+                    <GlassCard className="flex-1 p-8 overflow-y-auto">
+                      <div className="flex items-center gap-3 mb-6">
+                        <Palette className="w-5 h-5 text-purple-400" />
+                        <h3 className="text-lg font-semibold">Style Preference</h3>
+                      </div>
+                      
+                      <div className="flex flex-wrap gap-3 mb-8">
+                        {['Streetwear', 'Minimalist', 'Y2K', 'Luxury', 'Avant-Garde', 'Techwear'].map((style) => (
+                          <Pill 
+                            key={style} 
+                            label={style} 
+                            active={selectedStyle === style} 
+                            onClick={() => setSelectedStyle(style)} 
+                          />
+                        ))}
+                      </div>
+
+                      <div className="flex items-center gap-3 mb-4">
+                        <MessageSquare className="w-5 h-5 text-cyan-400" />
+                        <h3 className="text-lg font-semibold">Special Request</h3>
+                      </div>
+                      <div className="mb-6">
+                         <textarea 
+                           value={userRequest}
+                           onChange={(e) => setUserRequest(e.target.value)}
+                           placeholder="Ex: 'I need an outfit for a tech gallery opening in Berlin. Keep it monochromatic.'"
+                           className="w-full h-32 bg-white/5 border border-white/10 rounded-xl p-4 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50 resize-none transition-colors"
+                         />
+                      </div>
+                    </GlassCard>
+
+                    <button
+                      onClick={handleGenerate}
+                      disabled={!uploadedImage}
+                      className={`
+                        relative group overflow-hidden w-full p-1 rounded-2xl transition-all duration-300
+                        ${!uploadedImage ? 'opacity-50 grayscale cursor-not-allowed' : 'hover:shadow-[0_0_40px_rgba(168,85,247,0.4)]'}
+                      `}
+                    >
+                      <div className="absolute inset-0 bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 animate-gradient-xy" />
+                      <div className="relative bg-[#0a0a0f] rounded-[14px] px-8 py-5 flex items-center justify-center gap-3 group-hover:bg-opacity-90 transition-all">
+                        <span className="text-lg font-bold bg-gradient-to-r from-white to-gray-200 bg-clip-text text-transparent">
+                          GENERATE LOOK
+                        </span>
+                        <Zap className="w-5 h-5 text-yellow-300 fill-yellow-300" />
+                      </div>
+                    </button>
+                  </div>
+
+                </div>
+              </motion.div>
+            )}
+
+            {/* STATE: LOADING */}
+            {appState === 'loading' && (
+              <motion.div
+                key="loading"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="flex flex-col items-center justify-center h-[600px]"
+              >
+                <div className="relative w-64 h-64 mb-8">
+                  {/* Rotating Rings */}
+                  <motion.div 
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+                    className="absolute inset-0 rounded-full border border-t-purple-500 border-r-transparent border-b-cyan-500 border-l-transparent opacity-50"
+                  />
+                  <motion.div 
+                    animate={{ rotate: -180 }}
+                    transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+                    className="absolute inset-4 rounded-full border border-t-transparent border-r-pink-500 border-b-transparent border-l-purple-500 opacity-50"
+                  />
+                  
+                  {/* Center Pulse */}
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-40 h-40 rounded-full bg-purple-500/10 backdrop-blur-md flex items-center justify-center relative overflow-hidden">
+                       <ScanLine className="w-12 h-12 text-white/50 animate-pulse" />
+                       <motion.div 
+                        animate={{ top: ["0%", "100%"] }}
+                        transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+                        className="absolute left-0 right-0 h-[2px] bg-cyan-400 shadow-[0_0_15px_#06b6d4]"
+                       />
+                    </div>
+                  </div>
+                </div>
+                
+                <h3 className="text-2xl font-light tracking-widest text-white mb-2">ANALYZING WARDROBE</h3>
+                <motion.p 
+                  animate={{ opacity: [0.5, 1, 0.5] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                  className="text-purple-300 text-sm font-mono"
+                >
+                  Matching textures... Parsing {selectedStyle} trends...
+                </motion.p>
+              </motion.div>
+            )}
+
+            {/* STATE: RESULT */}
+            {appState === 'result' && (
+              <motion.div
+                key="result"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="w-full max-w-7xl mx-auto"
+              >
+                <div className="flex justify-between items-end mb-8">
+                  <div>
+                    <h2 className="text-3xl font-bold text-white mb-1">Your Curated Look</h2>
+                    <div className="flex items-center gap-2 text-gray-400 text-sm">
+                      <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                      AI Confidence Score: 98%
+                    </div>
+                  </div>
+                  <button 
+                    onClick={handleReset}
+                    className="px-4 py-2 rounded-lg border border-white/10 hover:bg-white/10 text-sm transition-colors flex items-center gap-2"
+                  >
+                    <RefreshCcw className="w-4 h-4" /> Start Over
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-auto">
+                  
+                  {/* Column 1: The Input Image & DNA */}
+                  <div className="space-y-6 flex flex-col h-[700px]">
+                    <GlassCard className="p-1 h-1/3 relative group">
+                      <img src={uploadedImage} alt="Input" className="w-full h-full object-cover rounded-2xl opacity-60 group-hover:opacity-100 transition-opacity" />
+                      <div className="absolute bottom-3 left-3 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md text-xs border border-white/10">Input Source</div>
+                    </GlassCard>
+
+                    <GlassCard className="flex-1 p-6 relative overflow-hidden flex flex-col justify-center" delay={0.1}>
+                      <div className="absolute top-0 right-0 p-3 opacity-20">
+                         <Zap className="w-24 h-24 text-white" />
+                      </div>
+                      <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
+                        Fashion DNA <div className="h-px flex-1 bg-white/10" />
+                      </h3>
+                      
+                      <div className="space-y-6">
+                        {MOCK_RESULT.analysis.map((item, idx) => (
+                           <ProgressBar key={idx} label={item.label} percentage={item.score} />
+                        ))}
+                      </div>
+
+                      <div className="mt-8">
+                        <p className="text-xs font-medium text-gray-400 mb-3">COLOR HARMONY</p>
+                        <div className="flex gap-2">
+                          {MOCK_RESULT.color_palette.map((color, idx) => (
+                            <motion.div 
+                              key={idx}
+                              initial={{ scale: 0 }}
+                              animate={{ scale: 1 }}
+                              transition={{ delay: 0.5 + (idx * 0.1) }}
+                              className="w-10 h-10 rounded-full border border-white/10 shadow-lg relative group"
+                              style={{ backgroundColor: color }}
+                            >
+                               <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-black text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-20">
+                                 {color}
+                               </div>
+                            </motion.div>
+                          ))}
+                        </div>
+                      </div>
+                    </GlassCard>
+                  </div>
+
+                  {/* Column 2: The Generated Hero Image */}
+                  <GlassCard className="lg:col-span-2 p-1 relative group h-[700px]" delay={0.2}>
+                    <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/80 z-10" />
+                    
+                    {/* Placeholder for Generated Image */}
+                    <div className="w-full h-full rounded-[22px] bg-gray-800 overflow-hidden relative">
+                        {/* In a real app, this is the AI result URL */}
+                        <img 
+                          src="https://images.unsplash.com/photo-1596706782806-613d29a676c8?q=80&w=2070&auto=format&fit=crop" 
+                          alt="Generated Outfit" 
+                          className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-700"
+                        />
+                        
+                        {/* Floating "AI Tags" on the image */}
+                        <motion.div 
+                          initial={{ opacity: 0, x: 20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: 1 }}
+                          className="absolute top-10 right-10 z-20 flex flex-col gap-2 items-end"
+                        >
+                           <div className="bg-black/40 backdrop-blur-md px-4 py-2 rounded-lg border border-white/10 text-xs font-mono text-cyan-300">
+                             BRAND: ACRONYM
+                           </div>
+                           <div className="bg-black/40 backdrop-blur-md px-4 py-2 rounded-lg border border-white/10 text-xs font-mono text-purple-300">
+                             FABRIC: GORE-TEX PRO
+                           </div>
+                        </motion.div>
+                    </div>
+
+                    <div className="absolute bottom-0 left-0 right-0 p-8 z-20">
+                      <div className="flex justify-between items-end">
+                        <div>
+                          <motion.h2 
+                            initial={{ y: 20, opacity: 0 }}
+                            animate={{ y: 0, opacity: 1 }}
+                            transition={{ delay: 0.4 }}
+                            className="text-4xl font-bold mb-2 text-white"
+                          >
+                            {MOCK_RESULT.vibe_match}
+                          </motion.h2>
+                          <p className="text-gray-300 max-w-md text-sm">
+                            A curated fusion of tech-utility and street aesthetics, perfectly balancing your preference for {selectedStyle}.
+                          </p>
+                        </div>
+                        <button className="bg-white text-black px-6 py-3 rounded-full font-bold hover:scale-105 transition-transform flex items-center gap-2">
+                           <Share2 className="w-4 h-4" /> Share Look
+                        </button>
+                      </div>
+                    </div>
+                  </GlassCard>
+
+                </div>
+
+                {/* Bottom Strip: Shop & Chat */}
+                <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6 h-[400px]">
+                   {/* Shop Section */}
+                   <div className="flex flex-col gap-4 overflow-y-auto pr-2">
+                     <h3 className="text-lg font-semibold flex items-center gap-2 mb-2">
+                       <Shirt className="w-5 h-5 text-purple-400" /> Shop the Look
+                     </h3>
+                     {MOCK_RESULT.items.map((item, idx) => (
+                        <GlassCard key={idx} className="p-4 flex items-center justify-between shrink-0" delay={0.6 + (idx * 0.1)}>
+                          <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-lg bg-white/5 flex items-center justify-center">
+                              <Shirt className="text-gray-400" />
+                            </div>
+                            <div>
+                              <h4 className="font-medium text-white">{item.name}</h4>
+                              <p className="text-xs text-gray-500 uppercase tracking-wider">{item.brand}</p>
+                            </div>
+                          </div>
+                          <span className="text-purple-300 font-mono">{item.price}</span>
+                        </GlassCard>
+                     ))}
+                   </div>
+
+                   {/* Chat Interface */}
+                   <GlassCard className="flex flex-col" delay={0.8}>
+                     <div className="p-4 border-b border-white/10 bg-white/5 flex items-center gap-2">
+                       <Bot className="w-5 h-5 text-cyan-400" />
+                       <span className="font-semibold text-sm">Stylist Assistant</span>
+                     </div>
+                     
+                     {/* Chat Messages */}
+                     <div className="flex-1 p-4 overflow-y-auto space-y-4">
+                        {chatHistory.map((msg, idx) => (
+                          <ChatMessage key={idx} role={msg.role} text={msg.text} />
+                        ))}
+                        <div ref={chatEndRef} />
+                     </div>
+
+                     {/* Chat Input */}
+                     <div className="p-4 border-t border-white/10 bg-white/5">
+                       <form onSubmit={handleSendMessage} className="flex gap-2">
+                         <input 
+                           type="text" 
+                           value={chatInput}
+                           onChange={(e) => setChatInput(e.target.value)}
+                           placeholder="Ask why this outfit works..."
+                           className="flex-1 bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-purple-500/50 text-white placeholder-gray-500"
+                         />
+                         <button 
+                           type="submit"
+                           className="p-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white transition-colors"
+                         >
+                           <Send className="w-4 h-4" />
+                         </button>
+                       </form>
+                     </div>
+                   </GlassCard>
+                </div>
+              </motion.div>
+            )}
+
+          </AnimatePresence>
+        </div>
+      </main>
+
+      <style>{`
+        @keyframes gradient-xy {
+          0%, 100% {
+              background-size: 400% 400%;
+              background-position: left center;
+          }
+          50% {
+              background-size: 200% 200%;
+              background-position: right center;
+          }
+        }
+        .animate-gradient-xy {
+          animation: gradient-xy 6s ease infinite;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+
+============================================================
+FILE PATH: front end\package.json
+============================================================
+{
+  "dependencies": {
+    "framer-motion": "^12.23.24",
+    "lucide-react": "^0.555.0"
+  }
+}
+
+
+
+============================================================
+FILE PATH: front end\my-fashion-app\eslint.config.js
+============================================================
+import js from '@eslint/js'
+import globals from 'globals'
+import reactHooks from 'eslint-plugin-react-hooks'
+import reactRefresh from 'eslint-plugin-react-refresh'
+import { defineConfig, globalIgnores } from 'eslint/config'
+
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{js,jsx}'],
+    extends: [
+      js.configs.recommended,
+      reactHooks.configs.flat.recommended,
+      reactRefresh.configs.vite,
+    ],
+    languageOptions: {
+      ecmaVersion: 2020,
+      globals: globals.browser,
+      parserOptions: {
+        ecmaVersion: 'latest',
+        ecmaFeatures: { jsx: true },
+        sourceType: 'module',
+      },
+    },
+    rules: {
+      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+    },
+  },
+])
+
+
+
+============================================================
+FILE PATH: front end\my-fashion-app\package.json
+============================================================
+{
+  "name": "my-fashion-app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "framer-motion": "^12.23.24",
+    "lucide-react": "^0.555.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/react": "^19.2.5",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "autoprefixer": "^10.4.22",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.5.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.18",
+    "vite": "npm:rolldown-vite@7.2.5"
+  },
+  "overrides": {
+    "vite": "npm:rolldown-vite@7.2.5"
+  }
+}
+
+
+
+============================================================
+FILE PATH: front end\my-fashion-app\postcss.config.js
+============================================================
+export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+}
+
+
+
+============================================================
+FILE PATH: front end\my-fashion-app\README.md
+============================================================
+# React + Vite
+
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+
+Currently, two official plugins are available:
+
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+
+## React Compiler
+
+The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+
+## Expanding the ESLint configuration
+
+If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+
+
+
+============================================================
+FILE PATH: front end\my-fashion-app\tailwind.config.js
+============================================================
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: [
+    "./index.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+}
+
+
+============================================================
+FILE PATH: front end\my-fashion-app\vite.config.js
+============================================================
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+// https://vite.dev/config/
+export default defineConfig({
+  plugins: [react()],
+})
+
+
+
+============================================================
+FILE PATH: front end\my-fashion-app\src\App.css
+============================================================
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+.card {
+  padding: 2em;
+}
+
+.read-the-docs {
+  color: #888;
+}
+
+
+
+============================================================
+FILE PATH: front end\my-fashion-app\src\App.jsx
+============================================================
+import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { generatePlan, generateVisuals } from './services/api';
+import { Loader2 } from 'lucide-react';
+import {
+  Upload,
+  Sparkles,
+  Zap,
+  Share2,
+  RefreshCcw,
+  Shirt,
+  Palette,
+  Maximize2,
+  CheckCircle2,
+  ScanLine,
+  MessageSquare,
+  Send,
+  User,
+  Bot,
+  AlertCircle,
+  MapPin,
+  DollarSign,
+  ExternalLink,
+  X // Close icon for lightbox
+} from 'lucide-react';
+// --- Helper: Image Loader Component ---
+const ImageLoader = () => (
+  <div className="w-full h-full flex flex-col items-center justify-center bg-white/5 animate-pulse text-gray-400">
+    <Loader2 className="w-10 h-10 animate-spin mb-2 text-purple-400" />
+    <span className="text-xs font-mono">AI Visualizing...</span>
+  </div>
+);
+
+// --- API Service Integration ---
+const generateAppearance = async (imageFile, requirements, style, userPrompt, budget, location) => {
+  const formData = new FormData();
+  formData.append('image', imageFile);
+  formData.append('requirements', requirements);
+  formData.append('style', style);
+  formData.append('user_prompt', userPrompt || '');
+  formData.append('budget', budget);
+  formData.append('location', location);
+
+  // 注意：確保後端運行於 localhost:8000
+  const API_URL = 'http://localhost:8000/api/generate-appearance';
+
+  try {
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Server error: ${response.status} - ${errorText}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("API Call failed:", error);
+    throw error;
+  }
+};
+
+// --- Helper: Simple Markdown Renderer ---
+const SimpleMarkdown = ({ text }) => {
+  if (!text) return null;
+  let processedText = text.replace(/([^\n])(\s*-\s)/g, '$1\n$2');
+
+  return (
+    <div className="space-y-3 text-gray-300 text-sm leading-relaxed font-sans">
+      {processedText.split('\n').map((line, i) => {
+        if (line.trim().startsWith('###')) {
+          return <h3 key={i} className="text-purple-300 font-bold text-lg mt-4 mb-2">{line.replace(/#/g, '').trim()}</h3>;
+        }
+        const parts = line.split(/(\*\*.*?\*\*|\[.*?\]\(.*?\))/g);
+        return (
+          <p key={i} className="min-h-[1em]">
+            {parts.map((part, j) => {
+              if (part.startsWith('**') && part.endsWith('**')) {
+                return <strong key={j} className="text-white font-semibold">{part.replace(/\*\*/g, '')}</strong>;
+              }
+              const linkMatch = part.match(/\[(.*?)\]\((.*?)\)/);
+              if (linkMatch) {
+                return (
+                  <a key={j} href={linkMatch[2]} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-cyan-400 hover:text-cyan-300 underline underline-offset-2 mx-1 font-medium transition-colors">
+                    {linkMatch[1]} <ExternalLink size={10} />
+                  </a>
+                );
+              }
+              return part;
+            })}
+          </p>
+        );
+      })}
+    </div>
+  );
+};
+
+// --- Components ---
+
+// GlassCard: Updated to accept onClick (for zoom trigger)
+const GlassCard = ({ children, className = "", delay = 0, onClick }) => (
+  <motion.div 
+    initial={{ opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ duration: 0.5, delay, ease: "easeOut" }}
+    onClick={onClick}
+    className={`relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-2xl ${className} ${onClick ? 'cursor-pointer' : ''}`}
+  >
+    <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none" />
+    <div className="relative z-10 h-full">{children}</div>
+  </motion.div>
+);
+
+const Pill = ({ label, active, onClick }) => (
+  <button
+    onClick={onClick}
+    className={`px-4 py-2 rounded-full text-xs font-medium transition-all duration-300 border ${
+      active 
+        ? "bg-purple-500/20 border-purple-400 text-purple-200 shadow-[0_0_15px_rgba(168,85,247,0.3)]" 
+        : "bg-white/5 border-white/10 text-gray-400 hover:bg-white/10 hover:border-white/20"
+    }`}
+  >
+    {label}
+  </button>
+);
+
+const LoadingStep = ({ label, isActive, isCompleted }) => (
+  <div className={`flex items-center gap-3 ${isActive ? 'opacity-100 scale-105' : 'opacity-50'} transition-all duration-500`}>
+    <div className={`w-6 h-6 rounded-full flex items-center justify-center border ${
+      isCompleted ? 'bg-green-500 border-green-500 text-black' : 
+      isActive ? 'bg-purple-500 border-purple-500 animate-pulse text-white' : 'border-white/20'
+    }`}>
+      {isCompleted ? <CheckCircle2 size={14} /> : <div className="w-2 h-2 rounded-full bg-current" />}
+    </div>
+    <span className={`text-sm ${isActive ? 'text-purple-300 font-bold' : 'text-gray-400'}`}>{label}</span>
+  </div>
+);
+
+const ChatMessage = ({ role, text }) => (
+  <motion.div 
+    initial={{ opacity: 0, x: role === 'ai' ? -10 : 10 }}
+    animate={{ opacity: 1, x: 0 }}
+    className={`flex gap-3 mb-4 ${role === 'user' ? 'flex-row-reverse' : ''}`}
+  >
+    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+      role === 'ai' ? 'bg-purple-500/20 text-purple-300' : 'bg-white/10 text-white'
+    }`}>
+      {role === 'ai' ? <Bot size={16} /> : <User size={16} />}
+    </div>
+    <div className={`p-3 rounded-2xl text-sm max-w-[80%] ${
+      role === 'ai' 
+        ? 'bg-purple-500/10 border border-purple-500/20 text-gray-200 rounded-tl-none' 
+        : 'bg-white/10 border border-white/10 text-white rounded-tr-none'
+    }`}>
+      <SimpleMarkdown text={text} />
+    </div>
+  </motion.div>
+);
+
+const ImageLightbox = ({ src, alt, onClose }) => (
+  <motion.div
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    exit={{ opacity: 0 }}
+    className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-4"
+    onClick={onClose}
+  >
+    <div className="relative max-w-5xl max-h-screen w-full h-full flex items-center justify-center">
+      <button 
+        onClick={onClose}
+        className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors z-50"
+      >
+        <X size={24} />
+      </button>
+      <motion.img
+        initial={{ scale: 0.9 }}
+        animate={{ scale: 1 }}
+        src={src}
+        alt={alt}
+        className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      />
+    </div>
+  </motion.div>
+);
+
+export default function FashionAIApp() {
+  const [appState, setAppState] = useState('input');
+  const [loadingStep, setLoadingStep] = useState(0);
+  const [age, setAge] = useState('Young Adult (20-35)');
+  const [gender, setGender] = useState('Men');
+  const [selectedStyle, setSelectedStyle] = useState('Streetwear');
+  const [uploadedImage, setUploadedImage] = useState(null);
+  const [imageFile, setImageFile] = useState(null);
+  const [userRequest, setUserRequest] = useState('');
+  const [budget, setBudget] = useState(500);
+  const [location, setLocation] = useState('Hong Kong');
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef(null);
+  const [visualsLoading, setVisualsLoading] = useState(false);
+  const [apiResult, setApiResult] = useState(null);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [chatInput, setChatInput] = useState('');
+  const [chatHistory, setChatHistory] = useState([]);
+  const chatEndRef = useRef(null);
+
+  // --- Zoom State (Restored) ---
+  const [zoomImage, setZoomImage] = useState(null);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatHistory, appState]);
+
+  useEffect(() => {
+    let interval;
+    if (appState === 'loading') {
+      setLoadingStep(0);
+      interval = setInterval(() => {
+        setLoadingStep(prev => (prev < 3 ? prev + 1 : prev));
+      }, 3000);
+    }
+    return () => clearInterval(interval);
+  }, [appState]);
+
+  const handleFile = (file) => {
+    if (file) {
+      setUploadedImage(URL.createObjectURL(file));
+      setImageFile(file);
+    }
+  };
+
+  const handleReset = () => {
+    setAppState('input');
+    setUploadedImage(null);
+    setImageFile(null);
+    setApiResult(null);
+    setUserRequest('');
+    setChatHistory([]);
+    setVisualsLoading(false);
+  };
+
+  // 3. Handle Chat Message
+  const handleSendMessage = (e) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+    
+    // Add user message immediately
+    const userMsg = chatInput;
+    setChatHistory(prev => [...prev, { role: 'user', text: userMsg }]);
+    setChatInput('');
+
+    // Mock AI response for now (since backend chat API isn't connected yet)
+    setTimeout(() => {
+      setChatHistory(prev => [...prev, { 
+        role: 'ai', 
+        text: `I can help you with styling advice for this ${selectedStyle} look! What specific details would you like to know?` 
+      }]);
+    }, 1000);
+  };
+
+  const handleGenerate = async () => {
+    if (!imageFile) return;
+    
+    // Step 1: UI 進入 Loading
+    setAppState('loading');
+    setErrorMessage('');
+    setLoadingStep(0);
+    setApiResult(null); // Clear previous result
+    const fullRequest = userRequest || 'General outfit advice';
+    try {
+      // Step 2: 呼叫快速的 Plan API
+      const planResult = await generatePlan(
+        fullRequest,
+        selectedStyle,
+        userRequest, // using same field for userPrompt
+        budget,
+        location,
+        gender,
+        age
+      );
+
+      // Step 3: 拿到文字結果，立刻顯示 UI
+      setApiResult(planResult); // 這時候 diagram 和 final_image 是空的
+      setChatHistory([{ role: 'ai', text: "✨ 文字分析已完成！正在為您生成虛擬試穿效果..." }]);
+      setAppState('result'); // 切換畫面到結果頁
+      
+      // Step 4: 啟動圖片生成 (異步)
+      setVisualsLoading(true);
+      
+      try {
+        const visualsResult = await generateVisuals(
+          imageFile,
+          planResult.internal_context
+        );
+
+        // Step 5: 圖片好了，更新 State
+        setApiResult(prev => ({
+            ...prev,
+            diagram: visualsResult.diagram,
+            final_image: visualsResult.final_image
+        }));
+      } catch (imgError) {
+        console.error("Visual gen failed", imgError);
+        // 可以選擇顯示錯誤或保留 loading 狀態
+      } finally {
+        setVisualsLoading(false);
+      }
+
+    } catch (error) {
+      console.error(error);
+      setErrorMessage(error.message || 'Failed to generate outfit.');
+      setAppState('error');
+    }
+  };
+
+  return (
+    <div className="min-h-screen w-full bg-[#0a0a0f] text-white font-sans selection:bg-purple-500/30 overflow-x-hidden">
+      
+      {/* Lightbox Overlay (Restored) */}
+      <AnimatePresence>
+        {zoomImage && (
+          <ImageLightbox 
+            src={zoomImage.src} 
+            alt={zoomImage.alt} 
+            onClose={() => setZoomImage(null)} 
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Background Ambience */}
+      <div className="fixed inset-0 pointer-events-none">
+        <div className="absolute top-[-10%] left-[-10%] w-[50vw] h-[50vw] bg-purple-900/20 rounded-full blur-[120px]" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[50vw] h-[50vw] bg-blue-900/10 rounded-full blur-[120px]" />
+        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20" />
+      </div>
+
+      <main className="relative z-10 max-w-7xl mx-auto px-4 py-8 lg:py-12 flex flex-col min-h-screen">
+        <header className="flex justify-between items-center mb-8">
+          <div className="flex items-center gap-2">
+            <div className="w-10 h-10 bg-gradient-to-tr from-purple-500 to-cyan-500 rounded-xl flex items-center justify-center shadow-lg shadow-purple-500/20">
+              <Sparkles className="text-white w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-400">
+                AURA <span className="font-light">STYLIST</span>
+              </h1>
+            </div>
+          </div>
+        </header>
+
+        <AnimatePresence mode="wait">
+          {appState === 'input' && (
+            <motion.div 
+              key="input"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, filter: "blur(10px)", scale: 1.05 }}
+              className="w-full max-w-6xl mx-auto"
+            >
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                
+                {/* Left: Upload */}
+                <div className="lg:col-span-5 h-[500px] lg:h-[650px]">
+                  <GlassCard className="h-full flex flex-col p-1 cursor-pointer transition-all hover:border-purple-500/30">
+                    <div 
+                      className={`
+                        flex-1 border-2 border-dashed rounded-[20px] transition-all duration-300 relative overflow-hidden
+                        flex flex-col items-center justify-center
+                        ${isDragging || uploadedImage ? 'border-purple-500/50 bg-purple-500/5' : 'border-white/10 hover:border-white/20 hover:bg-white/5'}
+                      `}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => handleFile(e.target.files[0])} />
+                      {uploadedImage ? (
+                        <div className="relative w-full h-full">
+                          <img src={uploadedImage} alt="Uploaded" className="w-full h-full object-cover" />
+                          <div className="absolute top-4 right-4 p-2 bg-black/50 backdrop-blur-md rounded-full text-white/70 hover:text-white"
+                             onClick={(e) => { e.stopPropagation(); setUploadedImage(null); }}>
+                            <RefreshCcw className="w-4 h-4" />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-center p-8">
+                          <div className="w-20 h-20 mx-auto bg-white/5 rounded-full flex items-center justify-center mb-6">
+                            <Upload className="w-8 h-8 text-purple-300" />
+                          </div>
+                          <h3 className="text-xl font-medium text-white mb-2">Upload Photo</h3>
+                          <p className="text-gray-500 text-xs">Tap to browse</p>
+                        </div>
+                      )}
+                    </div>
+                  </GlassCard>
+                </div>
+
+                {/* Right: Controls */}
+                <div className="lg:col-span-7 flex flex-col gap-6">
+                  <GlassCard className="flex-1 p-8 overflow-y-auto">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                      <div>
+                        <label className="flex items-center gap-2 text-sm font-semibold text-gray-300 mb-3">
+                          <MapPin size={16} className="text-cyan-400" /> Location
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          {['Hong Kong', 'Tokyo', 'Seoul', 'London', 'New York'].map(loc => (
+                            <Pill key={loc} label={loc} active={location === loc} onClick={() => setLocation(loc)} />
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                         <label className="flex items-center gap-2 text-sm font-semibold text-gray-300 mb-3">
+                          <DollarSign size={16} className="text-green-400" /> Budget (HKD): {budget}
+                        </label>
+                        <input 
+                          type="range" 
+                          min="100" 
+                          max="5000" 
+                          step="100" 
+                          value={budget} 
+                          onChange={(e) => setBudget(Number(e.target.value))}
+                          className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                        />
+                        <div className="flex justify-between text-xs text-gray-500 mt-2">
+                          <span>$100</span>
+                          <span>$5000+</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mb-8">
+                      <label className="flex items-center gap-2 text-sm font-semibold text-gray-300 mb-3">
+                        <Palette size={16} className="text-purple-400" /> Style Aesthetic
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        {['Streetwear', 'Minimalist', 'Y2K', 'Luxury', 'Smart Casual', 'Vintage'].map(style => (
+                          <Pill key={style} label={style} active={selectedStyle === style} onClick={() => setSelectedStyle(style)} />
+                        ))}
+                      </div>
+                    </div>
+                    <div className="mb-6">
+                        <label className="flex items-center gap-2 text-sm font-semibold text-gray-300 mb-3">
+                          <User size={16} className="text-pink-400" /> Gender Preference
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          {['Women', 'Men', 'Unisex'].map(g => (
+                            <Pill 
+                              key={g} 
+                              label={g} 
+                              active={gender === g} 
+                              onClick={() => setGender(g)} 
+                            />
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="mb-6">
+                        <label className="flex items-center gap-2 text-sm font-semibold text-gray-300 mb-3">
+                          <User size={16} className="text-orange-400" /> Age Group
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          {['Teenager (<20)', 'Young Adult (20-35)', 'Adult (36-50)', 'Mature (50+)'].map(a => (
+                            <Pill 
+                              key={a} 
+                              label={a} 
+                              active={age === a} 
+                              onClick={() => setAge(a)} 
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    <div className="mb-4">
+                       <label className="flex items-center gap-2 text-sm font-semibold text-gray-300 mb-3">
+                        <MessageSquare size={16} className="text-yellow-400" /> Special Request
+                      </label>
+                       <textarea 
+                         value={userRequest}
+                         onChange={(e) => setUserRequest(e.target.value)}
+                         placeholder="E.g., 'Going to a gallery opening, keep it monochromatic.'"
+                         className="w-full h-24 bg-black/20 border border-white/10 rounded-xl p-4 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-purple-500/50 resize-none"
+                       />
+                    </div>
+                  </GlassCard>
+
+                  <button
+                    onClick={handleGenerate}
+                    disabled={!uploadedImage}
+                    className={`
+                      w-full py-4 rounded-2xl font-bold tracking-wide text-lg transition-all
+                      ${uploadedImage 
+                        ? 'bg-gradient-to-r from-purple-600 to-blue-600 hover:shadow-[0_0_30px_rgba(147,51,234,0.5)] text-white' 
+                        : 'bg-white/5 text-gray-500 cursor-not-allowed'}
+                    `}
+                  >
+                    GENERATE OUTFIT
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {appState === 'loading' && (
+            <motion.div
+              key="loading"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="w-full max-w-lg mx-auto mt-20"
+            >
+              <GlassCard className="p-8 text-center">
+                <div className="relative w-32 h-32 mx-auto mb-8">
+                  <div className="absolute inset-0 rounded-full border-4 border-purple-500/30 animate-spin border-t-purple-500" />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <Sparkles className="w-10 h-10 text-white animate-pulse" />
+                  </div>
+                </div>
+                <h3 className="text-2xl font-bold text-white mb-6">Curating Your Look</h3>
+                <div className="space-y-4 text-left max-w-xs mx-auto">
+                  <LoadingStep label="Analyzing Style Profile" isActive={loadingStep >= 0} isCompleted={loadingStep > 0} />
+                  <LoadingStep label={`Searching Rakuten (${location} Weather)`} isActive={loadingStep >= 1} isCompleted={loadingStep > 1} />
+                  <LoadingStep label="Checking Budget & Stock" isActive={loadingStep >= 2} isCompleted={loadingStep > 2} />
+                  <LoadingStep label="Generating Visual Try-On" isActive={loadingStep >= 3} isCompleted={loadingStep > 3} />
+                </div>
+              </GlassCard>
+            </motion.div>
+          )}
+
+          {appState === 'result' && (
+            <motion.div key="result" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="w-full">
+              <div className="flex justify-between items-center mb-6">
+                 <h2 className="text-2xl font-bold text-white">Your Curated Collection</h2>
+                 <button onClick={handleReset} className="text-sm text-gray-400 hover:text-white underline">Start New Search</button>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                
+                {/* 圖片區域 (Restored Zoom Click) */}
+                <div className="lg:col-span-4 flex flex-col gap-6">
+                   {/* Diagram */}
+                   <GlassCard 
+                   className="aspect-[3/4] p-2 relative group bg-black/40 cursor-zoom-in"
+                   onClick={() => setZoomImage({ 
+                      src: apiResult?.diagram?.image_data || apiResult?.diagram?.image_url || uploadedImage, 
+                      alt: "OOTD Diagram" 
+                    })}
+                   >
+                    <div className="w-full h-full rounded-2xl overflow-hidden bg-[#1a1a20]">
+                        {/* 邏輯判斷：如果正在Loading，顯示轉圈圈；否則顯示圖片 */}
+                         {visualsLoading ? (
+                     <ImageLoader />
+                    ) : (
+                   <img 
+                     src={apiResult?.diagram?.image_data || apiResult?.diagram?.image_url || uploadedImage} 
+                     className="w-full h-full object-contain" 
+                     alt="OOTD Grid"
+                   />
+                      )}
+                    </div>
+                   </GlassCard>
+                   
+                   {/* Virtual Try On */}
+                   <GlassCard 
+                    className="aspect-[3/4] p-2 relative cursor-zoom-in group bg-black/40"
+                    onClick={() => setZoomImage({ 
+                      src: apiResult?.final_image?.image_data || apiResult?.final_image?.image_url || uploadedImage, 
+                      alt: "Virtual Try-On" 
+                    })}
+                   >
+                      <div className="w-full h-full rounded-2xl overflow-hidden relative">
+                        {visualsLoading ? (
+                    <ImageLoader />
+                ) : (
+                      <img 
+                        src={apiResult?.final_image?.image_data || apiResult?.final_image?.image_url || uploadedImage} 
+                        className="w-full h-full object-cover" 
+                        alt="Try On"
+                      />
+                          )}
+                        </div>
+                  </GlassCard>
+                </div>
+
+                {/* 資訊與商品區域 */}
+                <div className="lg:col-span-8 flex flex-col gap-6">
+                  
+                  {/* 文字分析 (Using SimpleMarkdown) */}
+                  <GlassCard className="p-8">
+                    <div className="flex items-center gap-3 mb-6 pb-4 border-b border-white/10">
+                      <div className="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center">
+                        <Bot className="text-purple-400" size={20} />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-lg text-white">Stylist Recommendation</h3>
+                        <p className="text-xs text-gray-500 uppercase tracking-wider">AI Analysis based on {location} weather</p>
+                      </div>
+                    </div>
+                    {/* 使用 SimpleMarkdown */}
+                    <SimpleMarkdown text={apiResult?.agent_summary?.final_recommendation} />
+                  </GlassCard>
+
+                  {/* 購物清單 */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {(apiResult?.agent_summary?.budget_items || []).map((item, i) => (
+                      <GlassCard key={i} className="p-4 flex gap-4 items-center hover:bg-white/10 transition-colors group">
+                        <div className="w-20 h-20 rounded-xl bg-white/5 shrink-0 overflow-hidden border border-white/10">
+                           {item.image ? <img src={item.image} className="w-full h-full object-contain bg-white" alt={item.name} /> : <Shirt className="m-auto mt-6 text-gray-600" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-bold text-sm truncate text-white mb-1 group-hover:text-purple-300 transition-colors">{item.name}</h4>
+                          <p className="text-xs text-gray-500 mb-3">{item.seller}</p>
+                          <div className="flex justify-between items-end">
+                             <span className="text-cyan-300 font-mono font-bold text-lg">{item.currency} {item.price}</span>
+                             {item.link && (
+                               <a 
+                                 href={item.link} 
+                                 target="_blank" 
+                                 rel="noreferrer" 
+                                 className="text-xs bg-white text-black px-4 py-2 rounded-full font-bold hover:bg-purple-400 hover:text-white transition-all flex items-center gap-1 shadow-lg shadow-purple-500/20"
+                               >
+                                 Buy Now <ExternalLink size={12} />
+                               </a>
+                             )}
+                          </div>
+                        </div>
+                      </GlassCard>
+                    ))}
+                  </div>
+
+                   {/* Chat Input */}
+                   <GlassCard className="flex-1 min-h-[300px] flex flex-col">
+                     <div className="p-4 border-b border-white/10 font-semibold text-sm">Ask about this look</div>
+                     <div className="flex-1 p-4 overflow-y-auto space-y-4 max-h-[300px]">
+                       {chatHistory.map((msg, i) => <ChatMessage key={i} {...msg} />)}
+                       <div ref={chatEndRef} />
+                     </div>
+                     <div className="p-4 border-t border-white/10">
+                       <form onSubmit={handleSendMessage} className="flex gap-2">
+                         <input 
+                           type="text" 
+                           value={chatInput}
+                           onChange={(e) => setChatInput(e.target.value)}
+                           placeholder="Ask why this outfit works..."
+                           className="flex-1 bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-purple-500/50 text-white placeholder-gray-500"
+                         />
+                         <button 
+                           type="submit"
+                           className="p-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white transition-colors"
+                         >
+                           <Send className="w-4 h-4" />
+                         </button>
+                       </form>
+                     </div>
+                   </GlassCard>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+        </AnimatePresence>
+      </main>
+
+      <style>{`
+        @keyframes gradient-xy {
+          0%, 100% {
+              background-size: 400% 400%;
+              background-position: left center;
+          }
+          50% {
+              background-size: 200% 200%;
+              background-position: right center;
+          }
+        }
+        .animate-gradient-xy {
+          animation: gradient-xy 6s ease infinite;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+
+============================================================
+FILE PATH: front end\my-fashion-app\src\index.css
+============================================================
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
+  height: 100%;
+  background-color: #0a0a0f; /* Dark background to match the theme */
+}
+
+
+============================================================
+FILE PATH: front end\my-fashion-app\src\main.jsx
+============================================================
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import './index.css'
+import App from './App.jsx'
+
+createRoot(document.getElementById('root')).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+)
+
+
+
+============================================================
+FILE PATH: front end\my-fashion-app\src\services\api.js
+============================================================
+const API_BASE_URL = 'http://localhost:8000';
+
+/**
+ * Generate appearance by sending user image and requirements to backend
+ * @param {File} imageFile - The uploaded image file
+ * @param {string} requirements - User requirements text
+ * @param {string} style - Selected style preference (e.g., 'Streetwear', 'Minimalist')
+ * @param {string} userPrompt - Additional special request from user
+ * @returns {Promise<Object>} API response with agent_summary, diagram, and final_image
+ */
+export async function generatePlan(requirements, style, userPrompt, budget, location, gender, age) {
+  const formData = new FormData();
+  formData.append('requirements', requirements || 'General outfit assistance');
+  if (style) formData.append('style', style);
+  if (userPrompt) formData.append('user_prompt', userPrompt);
+  formData.append('budget', budget);
+  formData.append('location', location);
+  
+  formData.append('gender', gender);
+  formData.append('age', age);
+
+  const response = await fetch(`${API_BASE_URL}/api/generate-plan`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) throw new Error('Plan generation failed');
+  return response.json();
+}
+export async function generateVisuals(imageFile, internalContext) {
+  const formData = new FormData();
+  formData.append('image', imageFile);
+  // 將 Context 物件轉字串傳回後端
+  formData.append('internal_context', JSON.stringify(internalContext));
+
+  const response = await fetch(`${API_BASE_URL}/api/generate-visuals`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) throw new Error('Visuals generation failed');
+  return response.json();
+}
+/**
+ * Health check for the backend API
+ * @returns {Promise<Object>} Health status
+ */
+export async function checkHealth() {
+  const response = await fetch(`${API_BASE_URL}/health`);
+  return response.json();
+}
+
+
+
+============================================================
+FILE PATH: services\appearance_service.py
+============================================================
+from __future__ import annotations
+
+from typing import Any, Dict, Optional
+from apis.nano_banana_client import NanoBananaClient
+from main_improved import run_recommendation_system
+
+PROMOTION_PROMPT = (
+    "The goal is to select the person in Figure 1 and have them wear all the clothing "
+    "and accessories from Figure 2. Take a series of realistic OOTD-style photos outdoors, "
+    "using natural light, a trendy street style, and clear full-body shots. Maintain the "
+    "person's identity and pose from Figure 1, but showcase the complete clothing and "
+    "accessories from Figure 2 in a coherent and fashionable way."
+)
+
+class AppearanceGenerationService:
+    """Coordinates agent reasoning, Nano Banana diagramming, and image fusion."""
+
+    def __init__(self):
+        self.nano_client = NanoBananaClient()
+
+    def generate_plan_only(
+        self,
+        requirements: str,
+        selected_style: Optional[str] = None,
+        user_prompt: Optional[str] = None,
+        budget: int = 500,
+        location: str = "Hong Kong",
+        gender: str = "Men",
+        age: str = "Young Adult (20-35)"
+    ) -> Dict[str, Any]:
+        
+        normalized_requirements = requirements.strip() or "General outfit assistance request."
+        
+        planner_prompt = self._compose_planner_prompt(
+            normalized_requirements,
+            selected_style,
+            user_prompt,
+            budget,
+            location,
+            gender,
+            age
+        )
+
+        # 執行 Agent Workflow (這裡比較快)
+        agent_state = run_recommendation_system(
+            planner_prompt,
+            verbose=True,
+            raise_on_error=True,
+        ) or {}
+
+        # 回傳 Agent 結果，不跑 Nano Banana
+        return {
+            "requirements": normalized_requirements,
+            "promotion_prompt": PROMOTION_PROMPT,
+            "agent_summary": {
+                "style_suggestion": agent_state.get("style_suggestion"),
+                "final_recommendation": agent_state.get("final_recommendation"),
+                "context_advice": agent_state.get("context_advice"),
+                "budget_items": agent_state.get("budget_items", []),
+            },
+            # 這裡回傳 prompt 資訊給前端，讓前端在第二步傳回來
+            "internal_context": {
+                "style_suggestion": agent_state.get("style_suggestion"),
+                "context_advice": agent_state.get("context_advice"),
+                "requirements": normalized_requirements,
+                "selected_style": selected_style
+            }
+        }
+
+    # --- 修改 2: 只負責產生圖片 (慢速) ---
+    def generate_visuals_only(
+        self,
+        user_image_bytes: bytes,
+        internal_context: str, # 接收 JSON string
+    ) -> Dict[str, Any]:
+        
+        import json
+        ctx = json.loads(internal_context)
+        
+        # 重建 Agent State dict 以供 compose prompt 使用
+        agent_state_mock = {
+            "style_suggestion": ctx.get("style_suggestion"),
+            "context_advice": ctx.get("context_advice")
+        }
+
+        print("\n[NANO BANANA] Step 1: Generating OOTD Diagram...")
+        diagram_prompt = self._compose_diagram_prompt(
+            ctx.get("requirements"),
+            ctx.get("selected_style"),
+            agent_state_mock,
+        )
+        
+        diagram_result = self.nano_client.generate_ootd_diagram(
+            prompt=diagram_prompt,
+            reference_style=ctx.get("selected_style"),
+        )
+
+        print("\n[NANO BANANA] Step 2: Generating Virtual Try-On...")
+        final_prompt = self._compose_final_prompt(
+            ctx.get("requirements"),
+            diagram_prompt,
+            agent_state_mock,
+        )
+
+        final_result = self.nano_client.blend_user_with_diagram(
+            user_image=user_image_bytes,
+            diagram_image_data=diagram_result.get("image_data"),
+            promo_prompt=final_prompt,
+        )
+
+        return {
+            "diagram": {
+                "prompt": diagram_prompt,
+                "image_url": diagram_result.get("image_url"),
+                "image_data": diagram_result.get("image_data"),
+            },
+            "final_image": final_result,
+        }
+
+    @staticmethod
+    def _compose_planner_prompt(
+        requirements: str,
+        selected_style: Optional[str],
+        user_prompt: Optional[str],
+        budget: int,
+        location: str,
+        gender: str,
+        age: str,
+    ) -> str:
+        base = f"""
+        [SYSTEM_INJECTED_DATA]
+        BUDGET: {budget}
+        LOCATION: {location}
+        STYLE_PREF: {selected_style if selected_style else "Not specified"}
+        TARGET_GENDER: {gender} (Strictly enforce this gender for clothing selection)
+        TARGET_AGE_GROUP: {age} (Ensure the style is age-appropriate)
+        [/SYSTEM_INJECTED_DATA]
+        
+        使用者需求描述：{requirements}
+        """
+        if user_prompt:
+            base += f"\n額外說明：{user_prompt}"
+        return base
+
+    @staticmethod
+    def _compose_diagram_prompt(
+        requirements: str,
+        selected_style: Optional[str],
+        agent_state: Dict[str, Any],
+    ) -> str:
+        style = selected_style or agent_state.get("style_suggestion") or "Streetwear"
+        context = agent_state.get("context_advice") or ""
+        # Improved Prompt: 強調一致性 (Consistency)
+        return (
+            f"Professional fashion **knolling photography (flat lay)**. "
+            f"Style: {style}. "
+            f"User request: {requirements}. "
+            f"Context: {context}. "
+            "Layout: Neatly arranged grid on a clean white background. "
+            "Items: clearly visible top, bottom, shoes, and accessories. "
+            "Ensure color consistency and realistic fabric textures."
+        )
+
+    @staticmethod
+    def _compose_final_prompt(
+        requirements: str,
+        diagram_prompt: str,
+        agent_state: Dict[str, Any],
+    ) -> str:
+        # Improved Prompt: 強制要求穿著圖表中的衣物
+        return (
+            f"{PROMOTION_PROMPT}\n"
+            f"**IMPORTANT**: The person MUST wear the EXACT outfit described below.\n"
+            f"Outfit Description: {diagram_prompt}\n"
+            f"User Context: {requirements}\n"
+            "Maintain the exact colors, style, and textures from the description. "
+            "High fidelity, cinematic lighting, photorealistic 8k."
+        )
+
+
+============================================================
+FILE PATH: utils\helpers.py
+============================================================
+import re
+import json
+from typing import Dict, Any, TypedDict, List
+
+
+class AgentState(TypedDict):
+    """State object shared between agents"""
+    userInput: str
+    userProfile: Dict
+    
+    # --- Agentic Loop Fields ---
+    retry_count: int
+    manager_feedback: str
+    router_decision: str
+    
+    # --- Enhanced Workflow Fields ---
+    style_suggestion: str
+    search_queries: List[str]  # CHANGED: From single string to List of strings
+    budget_items: List[Dict]
+    context_advice: str
+    manager_decision: str
+    final_recommendation: str
+    budget_exceeded: bool
+    arbitration_needed: bool
+    arbitration_result: str
+
+
+def extract_json_from_response(content: str) -> Dict[str, Any]:
+    """Extract JSON from response, handling markdown blocks and mixed text"""
+    content = content.strip()
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        pass
+
+    markdown_patterns = [
+        r'```json\s*(\{.*?\})\s*```',
+        r'```\s*(\{.*?\})\s*```',
+        r'`(\{.*?\})`'
+    ]
+
+    for pattern in markdown_patterns:
+        match = re.search(pattern, content, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(1))
+            except json.JSONDecodeError:
+                continue
+
+    # Fallback: Find first { and last }
+    start_idx = content.find('{')
+    end_idx = content.rfind('}')
+    if start_idx != -1 and end_idx != -1:
+        try:
+            return json.loads(content[start_idx:end_idx+1])
+        except json.JSONDecodeError:
+            pass
+
+    return {}
+
+
+def format_budget_items(items: List[Dict]) -> str:
+    """Format budget items for display, including LINKS"""
+    if not items:
+        return "沒有找到符合預算的商品"
+
+    formatted = "### 🛒 找到的商品清單：\n"
+    total_price = 0
+    for i, item in enumerate(items, 1):
+        link = item.get('link', '#')
+        price = item.get('price', 0)
+        total_price += price
+        formatted += f"{i}. **[{item['name']}]({link})**\n   - 價格: {item['currency']} {price:.2f}\n"
+    
+    formatted += f"\n**總金額**: {items[0]['currency'] if items else 'HKD'} {total_price:.2f}"
+    return formatted
+
+
+def check_budget_exceeded(items: List[Dict], budget: float) -> bool:
+    """
+    Improved Check: 
+    Checks if the SUM of the outfit exceeds budget, 
+    OR if any individual item is ridiculously overpriced.
+    """
+    if not items:
+        return False
+
+    total_price = sum(item.get('price', 0) for item in items)
+    
+    # 邏輯：如果是單件推薦，我們看單價。如果是多件組(OOTD)，我們看總價。
+    # 這裡採用一個寬容度 (Tolerance)，允許超支 10%
+    if total_price > budget * 1.1: 
+        return True
+        
+    return False
+
+def create_arbitration_prompt(user_profile: Dict, style_suggestion: str, budget_items: List[Dict]) -> str:
+    """Create prompt for budget arbitration"""
+    budget = user_profile.get('預算', 0)
+
+    if not budget_items:
+        return f"""
+        團隊衝突：造型師建議的風格無法在預算 {budget} 元內找到商品。
+
+        造型師建議：{style_suggestion}
+        預算限制：{budget} 元
+        搜尋結果：沒有找到符合預算的商品
+
+        作為經理，請提供以下決策：
+        1. 是否要調整風格建議以符合預算？
+        2. 是否要建議用戶增加預算？
+        3. 還是要尋找替代方案？
+
+        請提供明確的決策和理由。
+        """
+
+    min_price = min(item.get('price', float('inf')) for item in budget_items)
+
+    return f"""
+    團隊協作成功：找到了符合預算的商品選項。
+
+    造型師建議：{style_suggestion}
+    預算限制：{budget} 元
+    找到商品：{len(budget_items)} 件，最低價格 {min_price} 元
+
+    請基於以上信息做出最終推薦決策。
+    """
+
+
+============================================================
+FILE PATH: utils\__init__.py
+============================================================
+# Utilities module
+
