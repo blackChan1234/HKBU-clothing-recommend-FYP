@@ -4,7 +4,7 @@
 
 ### 前端任務 (React Native / Expo)
 - [x] Task 1.1: 初始化 Expo 專案，將原本的 React (Vite) Web UI (App.jsx) 轉換為 React Native 原生組件 (`<View>`, `<Image>`, `<TouchableOpacity>`)。
-- [ ] Task 1.2: 安裝並整合 `expo-image-picker`，實作「拍攝/從相簿上傳單件衣服圖片」功能。
+- [x] Task 1.2: 安裝並整合 `expo-image-picker`，實作「拍攝/從相簿上傳單件衣服圖片」功能。
 - [ ] Task 1.3: 實作「拍攝/從相簿上傳全身基準照 (Base Image)」功能。
 - [ ] Task 1.4: 建立長時間等待的 Loading 動畫組件（例如顯示「AI 正在為您換裝...」），確保等待生圖時 UI 不會卡死。
 
