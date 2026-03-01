@@ -1,3 +1,4 @@
+import base64
 import logging
 import os
 import uuid
@@ -87,6 +88,70 @@ async def list_uploads():
         if f.is_file()
     ]
     return {"count": len(files), "files": files}
+
+
+# ---------------------------------------------------------------------------
+# Virtual Try-On
+# ---------------------------------------------------------------------------
+
+TRYON_PROMPT = (
+    "Virtual Try-On: Generate a single, realistic, high-quality photo of the person from the "
+    "first image wearing the exact garment shown in the second image. "
+    "Rules: (1) Preserve the person's face, body shape, and pose exactly. "
+    "(2) Transfer the garment faithfully — keep its color, texture, and fit. "
+    "(3) Use natural outdoor lighting, photorealistic quality, no compositing artifacts."
+)
+
+@app.post("/api/try-on/generate")
+async def try_on_generate(
+    person_image: UploadFile = File(..., description="Full-body photo of the person"),
+    garment_image: UploadFile = File(..., description="Photo of the garment to try on"),
+):
+    """
+    Receive a person photo and a garment photo, save both locally,
+    then call Nano Banana to produce a virtual try-on result image.
+    """
+    # Validate both uploads are images
+    for upload, field in [(person_image, "person_image"), (garment_image, "garment_image")]:
+        if upload.content_type not in ALLOWED_IMAGE_TYPES:
+            raise HTTPException(
+                status_code=415,
+                detail=f"'{field}' has unsupported type '{upload.content_type}'. Must be an image.",
+            )
+
+    person_bytes = await person_image.read()
+    garment_bytes = await garment_image.read()
+
+    # Save both inputs to uploads/ so the frontend can reference them
+    job_id = uuid.uuid4().hex
+    person_name = f"{job_id}_person_{Path(person_image.filename or 'person.jpg').name}"
+    garment_name = f"{job_id}_garment_{Path(garment_image.filename or 'garment.jpg').name}"
+    (UPLOADS_DIR / person_name).write_bytes(person_bytes)
+    (UPLOADS_DIR / garment_name).write_bytes(garment_bytes)
+
+    logger.info("Try-on job %s: person=%s garment=%s", job_id, person_name, garment_name)
+
+    # Convert garment bytes to a data URI so Nano Banana can receive it as a reference image
+    garment_mime = garment_image.content_type or "image/jpeg"
+    garment_data_uri = f"data:{garment_mime};base64,{base64.b64encode(garment_bytes).decode()}"
+
+    try:
+        result = service.nano_client.blend_user_with_diagram(
+            user_image=person_bytes,
+            diagram_image_data=garment_data_uri,
+            promo_prompt=TRYON_PROMPT,
+        )
+    except Exception as exc:
+        logger.exception("Nano Banana call failed for job %s", job_id)
+        raise HTTPException(status_code=500, detail=f"Image generation failed: {exc}")
+
+    return {
+        "job_id": job_id,
+        "person_image_url": f"/uploads/{person_name}",
+        "garment_image_url": f"/uploads/{garment_name}",
+        "result": result,
+    }
+
 
 @app.post("/api/generate-plan")
 async def generate_plan(
