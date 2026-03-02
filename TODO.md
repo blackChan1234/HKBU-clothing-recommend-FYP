@@ -2,7 +2,7 @@
 
 ## Phase 0: 登入系統與使用者認證 (Authentication)
 - [x] Task 0.1: [後端] 在 FastAPI 實作 JWT 登入/註冊機制，並建立 `User` 資料庫表 (包含 id, username, hashed_password)。
-- [ ] Task 0.2: [前端] 在 Expo 實作 Login / Sign Up 畫面，並使用 AsyncStorage 儲存 JWT Token，設定若未登入則自動導向登入頁。
+- [x] Task 0.2: [前端] 在 Expo 實作 Login / Sign Up 畫面，並使用 AsyncStorage 儲存 JWT Token，設定若未登入則自動導向登入頁。
 
 ## Phase 1: 最小可行性產品 (MVP) 核心跑通
 - [x] Task 1.1: [前端] 初始化 Expo 專案，將 Web UI 轉換為 React Native 原生組件。
