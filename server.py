@@ -1,4 +1,5 @@
 import base64
+import io
 import logging
 import os
 import uuid
@@ -14,15 +15,19 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from PIL import Image
+
 from auth import create_access_token, get_current_user, hash_password, verify_password
-from database import User, get_db, init_db
+from database import Garment, User, get_db, init_db
 from services.appearance_service import AppearanceGenerationService
 
 logger = logging.getLogger(__name__)
 
-# Ensure uploads directory exists before mounting
+# Ensure uploads and thumbnails directories exist before mounting
 UPLOADS_DIR = Path("uploads")
 UPLOADS_DIR.mkdir(exist_ok=True)
+THUMBNAILS_DIR = Path("thumbnails")
+THUMBNAILS_DIR.mkdir(exist_ok=True)
 
 app = FastAPI(title="Appearance Fusion API", version="0.1.0")
 
@@ -39,6 +44,8 @@ app.add_middleware(
 
 # Serve uploaded images as static files at /uploads/<filename>
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+# Serve thumbnails at /thumbnails/<filename>
+app.mount("/thumbnails", StaticFiles(directory=str(THUMBNAILS_DIR)), name="thumbnails")
 
 service = AppearanceGenerationService()
 
@@ -125,16 +132,27 @@ async def me(current_user: User = Depends(get_current_user)):
 # ---------------------------------------------------------------------------
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif", "image/heic"}
+THUMBNAIL_MAX_SIZE = (300, 400)  # width × height
 
 
-@app.post("/api/wardrobe/upload")
+def _make_thumbnail(image_bytes: bytes, dest_path: Path) -> None:
+    """Generate a 300×400 max JPEG thumbnail, preserving aspect ratio."""
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    img.thumbnail(THUMBNAIL_MAX_SIZE, Image.LANCZOS)
+    img.save(dest_path, format="JPEG", quality=85, optimize=True)
+
+
+@app.post("/api/wardrobe/upload", status_code=201)
 async def wardrobe_upload(
     image: UploadFile = File(...),
     label: str = Form(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """
-    Accept a garment image from the Expo app (multipart/form-data),
-    save it to the local uploads/ directory, and return an accessible URL.
+    Accept a garment image (auth required).
+    Saves the original to uploads/, generates a thumbnail in thumbnails/,
+    creates a Garment DB record, and returns URLs + garment_id.
     """
     if image.content_type not in ALLOWED_IMAGE_TYPES:
         raise HTTPException(
@@ -142,34 +160,77 @@ async def wardrobe_upload(
             detail=f"Unsupported file type '{image.content_type}'. Must be an image.",
         )
 
-    original_name = Path(image.filename or "upload.jpg").name
-    file_id = uuid.uuid4().hex
-    save_name = f"{file_id}_{original_name}"
-    save_path = UPLOADS_DIR / save_name
-
     contents = await image.read()
-    save_path.write_bytes(contents)
+    file_id = uuid.uuid4().hex
+    original_name = Path(image.filename or "upload.jpg").name
+    save_name = f"{file_id}_{original_name}"
 
-    logger.info("Saved wardrobe upload: %s (%d bytes)", save_path, len(contents))
+    # Save original
+    image_path = UPLOADS_DIR / save_name
+    image_path.write_bytes(contents)
+
+    # Generate thumbnail
+    thumb_name = f"thumb_{file_id}.jpg"
+    thumb_path = THUMBNAILS_DIR / thumb_name
+    try:
+        _make_thumbnail(contents, thumb_path)
+    except Exception:
+        logger.exception("Thumbnail generation failed for %s — skipping", save_name)
+        thumb_name = None
+
+    # Persist Garment record
+    garment = Garment(
+        user_id=current_user.id,
+        image_path=str(image_path),
+        thumbnail_path=str(thumb_path) if thumb_name else None,
+        label=label,
+    )
+    db.add(garment)
+    db.commit()
+    db.refresh(garment)
+
+    logger.info(
+        "Garment %s saved for user %s: %s (thumb: %s)",
+        garment.id, current_user.username, save_name, thumb_name,
+    )
 
     return {
-        "file_id": file_id,
-        "filename": save_name,
+        "garment_id": garment.id,
+        "image_url": f"/uploads/{save_name}",
+        "thumbnail_url": f"/thumbnails/{thumb_name}" if thumb_name else None,
         "label": label,
         "size_bytes": len(contents),
-        "image_url": f"/uploads/{save_name}",
     }
 
 
-@app.get("/api/wardrobe/uploads")
-async def list_uploads():
-    """Return a list of all uploaded garment images with their accessible URLs."""
-    files = [
-        {"filename": f.name, "image_url": f"/uploads/{f.name}", "size_bytes": f.stat().st_size}
-        for f in sorted(UPLOADS_DIR.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True)
-        if f.is_file()
-    ]
-    return {"count": len(files), "files": files}
+@app.get("/api/wardrobe/garments")
+async def list_garments(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return all garments belonging to the authenticated user, newest first."""
+    garments = (
+        db.query(Garment)
+        .filter(Garment.user_id == current_user.id)
+        .order_by(Garment.created_at.desc())
+        .all()
+    )
+    return {
+        "count": len(garments),
+        "garments": [
+            {
+                "id": g.id,
+                "image_url": f"/uploads/{Path(g.image_path).name}",
+                "thumbnail_url": f"/thumbnails/{Path(g.thumbnail_path).name}" if g.thumbnail_path else None,
+                "label": g.label,
+                "category": g.category,
+                "color": g.color,
+                "material": g.material,
+                "created_at": g.created_at.isoformat(),
+            }
+            for g in garments
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------
