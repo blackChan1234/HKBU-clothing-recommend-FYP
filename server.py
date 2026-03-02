@@ -17,6 +17,9 @@ from sqlalchemy.orm import Session
 
 from PIL import Image
 
+# rembg is imported lazily inside _remove_background to avoid slowing startup
+# if the model weights have not yet been downloaded.
+
 from auth import create_access_token, get_current_user, hash_password, verify_password
 from database import Garment, User, get_db, init_db
 from services.appearance_service import AppearanceGenerationService
@@ -142,6 +145,16 @@ def _make_thumbnail(image_bytes: bytes, dest_path: Path) -> None:
     img.save(dest_path, format="JPEG", quality=85, optimize=True)
 
 
+def _remove_background(image_bytes: bytes) -> Optional[bytes]:
+    """Remove background using rembg. Returns PNG bytes, or None on failure."""
+    try:
+        from rembg import remove as rembg_remove  # lazy import — model download on first call
+        return rembg_remove(image_bytes)
+    except Exception:
+        logger.exception("Background removal failed — skipping")
+        return None
+
+
 @app.post("/api/wardrobe/upload", status_code=201)
 async def wardrobe_upload(
     image: UploadFile = File(...),
@@ -178,11 +191,19 @@ async def wardrobe_upload(
         logger.exception("Thumbnail generation failed for %s — skipping", save_name)
         thumb_name = None
 
+    # Remove background (produces transparent PNG)
+    nobg_name = None
+    nobg_bytes = _remove_background(contents)
+    if nobg_bytes is not None:
+        nobg_name = f"nobg_{file_id}.png"
+        (UPLOADS_DIR / nobg_name).write_bytes(nobg_bytes)
+
     # Persist Garment record
     garment = Garment(
         user_id=current_user.id,
         image_path=str(image_path),
         thumbnail_path=str(thumb_path) if thumb_name else None,
+        nobg_path=str(UPLOADS_DIR / nobg_name) if nobg_name else None,
         label=label,
     )
     db.add(garment)
@@ -190,14 +211,15 @@ async def wardrobe_upload(
     db.refresh(garment)
 
     logger.info(
-        "Garment %s saved for user %s: %s (thumb: %s)",
-        garment.id, current_user.username, save_name, thumb_name,
+        "Garment %s saved for user %s: %s (thumb: %s, nobg: %s)",
+        garment.id, current_user.username, save_name, thumb_name, nobg_name,
     )
 
     return {
         "garment_id": garment.id,
         "image_url": f"/uploads/{save_name}",
         "thumbnail_url": f"/thumbnails/{thumb_name}" if thumb_name else None,
+        "nobg_url": f"/uploads/{nobg_name}" if nobg_name else None,
         "label": label,
         "size_bytes": len(contents),
     }
@@ -222,6 +244,7 @@ async def list_garments(
                 "id": g.id,
                 "image_url": f"/uploads/{Path(g.image_path).name}",
                 "thumbnail_url": f"/thumbnails/{Path(g.thumbnail_path).name}" if g.thumbnail_path else None,
+                "nobg_url": f"/uploads/{Path(g.nobg_path).name}" if g.nobg_path else None,
                 "label": g.label,
                 "category": g.category,
                 "color": g.color,

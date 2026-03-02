@@ -4,7 +4,7 @@ SQLAlchemy setup + all ORM models (User, Garment).
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, create_engine
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Session, relationship, sessionmaker
 
 DATABASE_URL = "sqlite:///./aura.db"
@@ -47,6 +47,7 @@ class Garment(Base):
     # Storage paths (relative to project root)
     image_path = Column(String, nullable=False)
     thumbnail_path = Column(String, nullable=True)   # populated by Task 2.2
+    nobg_path = Column(String, nullable=True)         # PNG with transparent bg (Task 2.3)
 
     # Metadata — all nullable until auto-tagging (Task 2.4) fills them in
     label = Column(String(100), nullable=True)        # free-text user label
@@ -68,8 +69,19 @@ class Garment(Base):
 # ---------------------------------------------------------------------------
 
 def init_db() -> None:
-    """Create all tables. Idempotent — safe to call every server start."""
+    """
+    Create all tables, then apply any additive migrations for existing DBs.
+    Each ALTER TABLE is wrapped in try/except so re-runs are safe.
+    """
     Base.metadata.create_all(bind=engine)
+
+    # Task 2.3: add nobg_path if this DB was created before Task 2.3
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE garments ADD COLUMN nobg_path VARCHAR"))
+            conn.commit()
+        except Exception:
+            pass  # column already exists — safe to ignore
 
 
 def get_db():
