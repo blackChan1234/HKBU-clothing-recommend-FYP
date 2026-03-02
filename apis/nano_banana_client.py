@@ -2,7 +2,6 @@ import base64
 import io
 import os
 import re
-import textwrap
 from typing import Any, Dict, List, Optional, Union
 
 import requests
@@ -36,33 +35,6 @@ class NanoBananaClient:
     # --------------------------------------------------------------------- #
     # Public API
     # --------------------------------------------------------------------- #
-    def generate_ootd_diagram(
-        self,
-        prompt: str,
-        reference_style: Optional[str] = None,
-        reference_image: Optional[bytes] = None,
-    ) -> Dict[str, Any]:
-        """Create an intermediate OOTD diagram using Gemini image generation."""
-
-        style_context = reference_style or "Modern Streetwear"
-
-        full_prompt = (
-            f"Create a professional fashion **flat lay photography (knolling)** of a coordinated outfit. "
-            f"Subject: {prompt}. "
-            f"Style Aesthetic: {style_context}. "
-            "Composition: **Top-down 90-degree view**, items are neatly arranged in a balanced **grid layout** on a clean, neutral background (light grey or white). "
-            "Lighting: Soft, diffuse studio lighting to show fabric textures clearly. "
-            "Constraints: **No human models**, no mannequins, no body parts. Just the clothing items and accessories laid out organized."
-        )
-
-        if self._is_remote_enabled:
-            result = self._generate_image(full_prompt, reference_image)
-            if result:
-                return result
-            print("--- Nano Banana: Remote API failed, using fallback stub ---")
-
-        return self._generate_stub_diagram(prompt, reference_style)
-
     def blend_user_with_diagram(
         self,
         user_image: bytes,
@@ -240,28 +212,6 @@ class NanoBananaClient:
         except Exception as e:
             print(f"  [NANO BANANA API] Unexpected Error: {type(e).__name__}: {e}")
             return None
-
-    def _generate_stub_diagram(self, prompt: str, reference_style: Optional[str]) -> Dict[str, Any]:
-        width, height = 768, 1024
-        canvas = Image.new("RGB", (width, height), "#111827")
-        draw = ImageDraw.Draw(canvas)
-
-        title_font = self._load_font(42)
-        body_font = self._load_font(24)
-
-        draw.text((40, 40), "OOTD Diagram", fill="#fcd34d", font=title_font)
-        if reference_style:
-            draw.text((40, 110), f"Style: {reference_style}", fill="#fef3c7", font=body_font)
-
-        wrapped = textwrap.fill(prompt, width=32)
-        draw.multiline_text((40, 180), wrapped, fill="#d1d5db", font=body_font, spacing=6)
-
-        encoded = self._encode_data_uri(canvas)
-        return {
-            "image_data": encoded,
-            "image_url": None,
-            "prompt": prompt,
-        }
 
     def _generate_stub_final(self, user_image: bytes, diagram_image_data: Optional[str]) -> Dict[str, Any]:
         # Load or fallback to a gradient canvas

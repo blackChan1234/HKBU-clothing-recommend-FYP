@@ -22,7 +22,7 @@ from PIL import Image
 
 from auth import create_access_token, get_current_user, hash_password, verify_password
 from database import Garment, SessionLocal, User, get_db, init_db
-from services.appearance_service import AppearanceGenerationService
+from apis.nano_banana_client import NanoBananaClient
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 # Serve thumbnails at /thumbnails/<filename>
 app.mount("/thumbnails", StaticFiles(directory=str(THUMBNAILS_DIR)), name="thumbnails")
 
-service = AppearanceGenerationService()
+nano_client = NanoBananaClient()
 
 
 # ---------------------------------------------------------------------------
@@ -348,7 +348,7 @@ def _run_tryon_job(job_id: str, person_bytes: bytes, garment_bytes: bytes, garme
     """
     garment_data_uri = f"data:{garment_mime};base64,{base64.b64encode(garment_bytes).decode()}"
     try:
-        result = service.nano_client.blend_user_with_diagram(
+        result = nano_client.blend_user_with_diagram(
             user_image=person_bytes,
             diagram_image_data=garment_data_uri,
             promo_prompt=TRYON_PROMPT,
@@ -479,53 +479,6 @@ async def try_on_status(job_id: str):
         "error": job["error"],
         "detail": job["detail"],
     }
-
-
-# ---------------------------------------------------------------------------
-# Legacy plan/visuals endpoints (kept for backwards compat during transition)
-# ---------------------------------------------------------------------------
-
-@app.post("/api/generate-plan")
-async def generate_plan(
-    requirements: str = Form(...),
-    style: str = Form(None),
-    user_prompt: str = Form(None),
-    budget: int = Form(500),
-    location: str = Form("Hong Kong"),
-    gender: str = Form("Men"),
-    age: str = Form("Young Adult (20-35)")
-):
-    try:
-        payload = service.generate_plan_only(
-            requirements=requirements,
-            selected_style=style,
-            user_prompt=user_prompt,
-            budget=budget,
-            location=location,
-            gender=gender,
-            age=age
-        )
-        return payload
-    except Exception as exc:
-        logger.exception("Failed to generate plan")
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@app.post("/api/generate-visuals")
-async def generate_visuals(
-    image: UploadFile = File(...),
-    internal_context: str = Form(...)
-):
-    try:
-        image_bytes = await image.read()
-        payload = service.generate_visuals_only(
-            user_image_bytes=image_bytes,
-            internal_context=internal_context
-        )
-        return payload
-    except Exception as exc:
-        logger.exception("Failed to generate visuals")
-        raise HTTPException(status_code=500, detail=str(exc))
 
 
 if __name__ == "__main__":
