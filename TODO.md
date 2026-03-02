@@ -15,7 +15,7 @@
 - [x] Task 1.8: [後端] 實作非同步任務 (Async Task)，呼叫 Nano Banana API 進行換裝生圖，並加入圖片違規的錯誤處理機制。
 
 ## Phase 2: 智能衣櫃與資料庫建設 (Backend & DB)
-- [ ] Task 2.1: [後端] 建立本地端 SQLite 資料庫，設計 `Garment` 表格。欄位必須包含：`user_id` (外鍵), 圖片路徑, `category`, `color`, `material` 等 Meta Data。
+- [x] Task 2.1: [後端] 建立本地端 SQLite 資料庫，設計 `Garment` 表格。欄位必須包含：`user_id` (外鍵), 圖片路徑, `category`, `color`, `material` 等 Meta Data。
 - [ ] Task 2.2: [後端] 實作圖片儲存與優化機制：原圖存於伺服器，並生成縮圖 (Thumbnail)。
 - [ ] Task 2.3: [後端] 整合 `rembg` 進行「自動背景去除」。
 - [ ] Task 2.4: [後端] 串接 Vision AI 進行「自動打標籤 (Auto-tagging)」，自動萃取衣物特徵並存入 `Garment` 資料表。
