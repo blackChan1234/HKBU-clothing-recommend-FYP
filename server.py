@@ -4,7 +4,7 @@ import logging
 import os
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional, TypedDict
+from typing import Any, Dict, List, Literal, Optional, TypedDict
 
 # Fix Windows console encoding for Chinese characters
 os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
@@ -478,6 +478,109 @@ async def try_on_status(job_id: str):
         "status": "failed",
         "error": job["error"],
         "detail": job["detail"],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Recommendation endpoints
+# ---------------------------------------------------------------------------
+
+class FeedbackRequest(BaseModel):
+    garment_ids: List[int]
+    liked: bool
+
+
+@app.post("/api/recommend/daily")
+def recommend_daily(
+    occasion: str = Form("casual"),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Run the wardrobe recommendation agent for the current user.
+    Returns 3 outfit combinations (JSON + image URLs only — no Nano Banana calls).
+    Runs synchronously in FastAPI's thread pool.
+    """
+    from services.wardrobe_agent import run_wardrobe_recommendation
+    try:
+        return run_wardrobe_recommendation(user_id=current_user.id, occasion=occasion)
+    except Exception as exc:
+        logger.exception("Recommend daily failed for user %s", current_user.username)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/recommend/feedback", status_code=200)
+async def recommend_feedback(
+    body: FeedbackRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Log a like/pass decision for a specific outfit's garments.
+    Payload: {"garment_ids": [4, 7], "liked": true}
+    Stored in server log for now — ready for DB persistence later.
+    """
+    action = "LIKED" if body.liked else "PASSED"
+    logger.info(
+        "Feedback | user=%s action=%s garment_ids=%s",
+        current_user.username, action, body.garment_ids,
+    )
+    return {"status": "recorded"}
+
+
+@app.post("/api/try-on/from-wardrobe", status_code=202)
+async def try_on_from_wardrobe(
+    background_tasks: BackgroundTasks,
+    person_image: UploadFile = File(..., description="Headless full-body photo"),
+    garment_id: int = Form(..., description="ID of the garment from the user's wardrobe"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Virtual try-on using a garment already stored in the user's wardrobe.
+    Reads the garment image from disk (no re-upload needed from the frontend).
+    Returns a job_id to poll via GET /api/try-on/status/{job_id}.
+    """
+    garment = (
+        db.query(Garment)
+        .filter(Garment.id == garment_id, Garment.user_id == current_user.id)
+        .first()
+    )
+    if not garment:
+        raise HTTPException(status_code=404, detail=f"Garment {garment_id} not found.")
+
+    for upload in [person_image]:
+        if upload.content_type not in ALLOWED_IMAGE_TYPES:
+            raise HTTPException(
+                status_code=415,
+                detail=f"Unsupported image type '{upload.content_type}'.",
+            )
+
+    person_bytes = await person_image.read()
+    garment_bytes = Path(garment.image_path).read_bytes()
+    garment_mime = "image/jpeg"
+
+    job_id = uuid.uuid4().hex
+    person_name = f"{job_id}_person_{Path(person_image.filename or 'person.jpg').name}"
+    (UPLOADS_DIR / person_name).write_bytes(person_bytes)
+
+    _jobs[job_id] = TryOnJob(
+        status="pending",
+        person_image_url=f"/uploads/{person_name}",
+        garment_image_url=f"/uploads/{Path(garment.image_path).name}",
+        result=None,
+        error=None,
+        detail=None,
+    )
+
+    background_tasks.add_task(_run_tryon_job, job_id, person_bytes, garment_bytes, garment_mime)
+
+    logger.info(
+        "Try-on (from wardrobe) job %s queued: user=%s garment_id=%s",
+        job_id, current_user.username, garment_id,
+    )
+    return {
+        "job_id": job_id,
+        "status": "pending",
+        "poll_url": f"/api/try-on/status/{job_id}",
     }
 
 

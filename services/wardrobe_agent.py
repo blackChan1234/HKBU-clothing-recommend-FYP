@@ -3,7 +3,7 @@ services/wardrobe_agent.py
 
 LangGraph-powered wardrobe recommendation agent.
 Fetches the authenticated user's garments from SQLite, checks the weather,
-then asks Gemini to pick the best outfit combination for the occasion.
+then asks Gemini to generate 3 distinct outfit combinations for the occasion.
 """
 from __future__ import annotations
 
@@ -27,35 +27,41 @@ logger = logging.getLogger(__name__)
 
 class WardrobeState(TypedDict):
     user_id: int
-    occasion: str                    # e.g. "casual", "formal", "outdoor"
+    occasion: str
     garments: List[Dict]             # loaded from DB
     weather_advice: str
-    recommended_ids: List[int]       # garment IDs chosen by AI
-    primary_tryon_id: Optional[int]  # the Top/Dress chosen for Nano Banana try-on
-    reasoning: str                   # AI's explanation
-    recommended_garments: List[Dict] # full garment dicts for frontend display
+    outfit_combinations: List[Dict]  # array of 3 outfit combos
 
 
 # ---------------------------------------------------------------------------
-# JSON parsing helper
+# JSON parsing helper — handles arrays AND objects, strips markdown fences
 # ---------------------------------------------------------------------------
 
-def _parse_json_safe(text: str) -> Dict[str, Any]:
+def _parse_json_safe(text: str) -> Any:
     """
     Parse JSON from an LLM response, robustly stripping markdown code fences
-    (e.g. ```json ... ``` or ``` ... ```) before calling json.loads().
+    (e.g. ```json...``` or ```...```) before calling json.loads().
+    Handles both top-level arrays ([...]) and objects ({...}).
     """
     text = text.strip()
-    # Remove opening fence: ```json or ```
+    # Strip opening fence: ```json or ```
     text = re.sub(r"^```(?:json)?\s*", "", text)
-    # Remove closing fence: ```
+    # Strip closing fence
     text = re.sub(r"\s*```$", "", text)
     text = text.strip()
-    # Extract the outermost { ... } block as a safety net
-    start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end != -1:
-        text = text[start : end + 1]
+
+    # Try to extract the outermost JSON structure (array preferred, then object)
+    for open_c, close_c in [("[", "]"), ("{", "}")]:
+        start = text.find(open_c)
+        end = text.rfind(close_c)
+        if start != -1 and end != -1 and end > start:
+            candidate = text[start : end + 1]
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                pass
+
+    # Last resort: parse the whole stripped string
     return json.loads(text)
 
 
@@ -110,18 +116,12 @@ def get_weather(state: WardrobeState) -> Dict:
 
 
 def recommend_outfit(state: WardrobeState) -> Dict:
-    """Ask Gemini to pick the best outfit combination from the user's wardrobe."""
+    """Ask Gemini to generate 3 distinct outfit combinations from the wardrobe."""
     garments = state["garments"]
 
     if not garments:
-        return {
-            "recommended_ids": [],
-            "primary_tryon_id": None,
-            "reasoning": "Your wardrobe is empty. Please upload some garments first.",
-            "recommended_garments": [],
-        }
+        return {"outfit_combinations": []}
 
-    # Format garment list for the prompt
     garment_lines = "\n".join(
         f"  [id={g['id']}] {g['category']} | {g['color']} | {g['material']}"
         + (f" | label: {g['label']}" if g["label"] else "")
@@ -135,50 +135,58 @@ def recommend_outfit(state: WardrobeState) -> Dict:
 Occasion: {state['occasion']}
 Weather: {state['weather_advice']}
 
-Task:
-1. Pick 2–4 garment IDs that form a complete, well-coordinated outfit suitable for the occasion and weather.
-2. From the selected items, identify ONE "primary_tryon_id" — this MUST be a Top or Dress (the most visually impactful piece for virtual try-on via Nano Banana API).
+Task: Generate EXACTLY 3 DISTINCT outfit combinations. Each must use different garments where possible.
+For each combination:
+1. Pick 2-4 garment IDs that form a complete, well-coordinated outfit for the occasion and weather.
+2. Identify ONE "primary_tryon_id" that MUST be a Top or Dress — this is used for virtual try-on via Nano Banana.
 
-Reply with ONLY raw JSON (no markdown, no code fences):
-{{
-  "recommended_ids": [<list of integer garment IDs>],
-  "primary_tryon_id": <single integer garment ID that is a Top or Dress>,
-  "reasoning": "<brief explanation of why this outfit works for the occasion and weather>"
-}}"""
+Reply with ONLY a raw JSON array (no markdown, no code fences):
+[
+  {{"combination_id": 1, "recommended_ids": [<int>, ...], "primary_tryon_id": <int>, "reasoning": "<why this works>"}},
+  {{"combination_id": 2, "recommended_ids": [<int>, ...], "primary_tryon_id": <int>, "reasoning": "<why this works>"}},
+  {{"combination_id": 3, "recommended_ids": [<int>, ...], "primary_tryon_id": <int>, "reasoning": "<why this works>"}}
+]"""
 
     api_client = HKBUAPIClient()
     raw = api_client.call_chatgpt([{"role": "user", "content": prompt}])
 
     try:
-        tags = _parse_json_safe(raw)
+        combinations = _parse_json_safe(raw)
+        if not isinstance(combinations, list):
+            combinations = [combinations]
     except Exception:
-        logger.exception("Failed to parse recommendation JSON from: %s", raw[:300])
-        tags = {}
+        logger.exception("Failed to parse outfit combinations from: %s", raw[:300])
+        combinations = []
 
-    recommended_ids = [int(i) for i in tags.get("recommended_ids", [])]
-    primary_tryon_id = tags.get("primary_tryon_id")
-    if primary_tryon_id is not None:
-        primary_tryon_id = int(primary_tryon_id)
-    reasoning = tags.get("reasoning", "No reasoning provided.")
-
-    # Map IDs back to full garment dicts
     garment_map = {g["id"]: g for g in garments}
-    recommended_garments = [garment_map[gid] for gid in recommended_ids if gid in garment_map]
+    outfit_combinations: List[Dict] = []
 
-    # Ensure primary_tryon_id is actually in the recommended set
-    if primary_tryon_id not in garment_map:
-        primary_tryon_id = recommended_ids[0] if recommended_ids else None
+    for combo in combinations[:3]:
+        try:
+            recommended_ids = [int(i) for i in combo.get("recommended_ids", [])]
+            primary_tryon_id = combo.get("primary_tryon_id")
+            if primary_tryon_id is not None:
+                primary_tryon_id = int(primary_tryon_id)
+            # Fall back to first recommended ID if primary is invalid
+            if primary_tryon_id not in garment_map and recommended_ids:
+                primary_tryon_id = recommended_ids[0]
+
+            outfit_combinations.append({
+                "combination_id": combo.get("combination_id", len(outfit_combinations) + 1),
+                "reasoning": combo.get("reasoning", ""),
+                "primary_tryon_id": primary_tryon_id,
+                "garments": [
+                    garment_map[gid] for gid in recommended_ids if gid in garment_map
+                ],
+            })
+        except Exception:
+            logger.exception("Skipping malformed combination: %s", combo)
 
     logger.info(
-        "Recommendation for user %s: ids=%s primary=%s",
-        state["user_id"], recommended_ids, primary_tryon_id,
+        "Generated %d outfit combinations for user %s",
+        len(outfit_combinations), state["user_id"],
     )
-    return {
-        "recommended_ids": recommended_ids,
-        "primary_tryon_id": primary_tryon_id,
-        "reasoning": reasoning,
-        "recommended_garments": recommended_garments,
-    }
+    return {"outfit_combinations": outfit_combinations}
 
 
 # ---------------------------------------------------------------------------
@@ -210,31 +218,35 @@ def run_wardrobe_recommendation(user_id: int, occasion: str = "casual") -> Dict[
     """
     Run the wardrobe recommendation agent for a given user.
 
-    Returns a dict with:
-      - recommended_garments: List[Dict]  full garment objects (id, category, color,
-                                          material, image_url, thumbnail_url, nobg_url)
-      - primary_tryon_id:     Optional[int]  the Top/Dress ID for Nano Banana try-on
-      - reasoning:            str            AI's explanation
-      - occasion:             str
-      - weather_advice:       str
+    Returns:
+      {
+        "outfit_combinations": [
+          {
+            "combination_id": int,
+            "reasoning": str,
+            "primary_tryon_id": int | None,   # Top/Dress for Nano Banana try-on
+            "garments": [                      # full garment objects for frontend
+              {id, category, color, material, image_url, thumbnail_url, nobg_url}
+            ]
+          },
+          ...  # up to 3 combos
+        ],
+        "weather_advice": str,
+        "occasion": str,
+      }
     """
     initial_state: WardrobeState = {
         "user_id": user_id,
         "occasion": occasion,
         "garments": [],
         "weather_advice": "",
-        "recommended_ids": [],
-        "primary_tryon_id": None,
-        "reasoning": "",
-        "recommended_garments": [],
+        "outfit_combinations": [],
     }
 
     final_state = _workflow.invoke(initial_state)
 
     return {
-        "recommended_garments": final_state["recommended_garments"],
-        "primary_tryon_id": final_state["primary_tryon_id"],
-        "reasoning": final_state["reasoning"],
-        "occasion": occasion,
+        "outfit_combinations": final_state["outfit_combinations"],
         "weather_advice": final_state["weather_advice"],
+        "occasion": occasion,
     }
