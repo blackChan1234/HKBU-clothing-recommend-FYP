@@ -21,7 +21,7 @@ from PIL import Image
 # if the model weights have not yet been downloaded.
 
 from auth import create_access_token, get_current_user, hash_password, verify_password
-from database import Garment, User, get_db, init_db
+from database import Garment, SessionLocal, User, get_db, init_db
 from services.appearance_service import AppearanceGenerationService
 
 logger = logging.getLogger(__name__)
@@ -155,8 +155,59 @@ def _remove_background(image_bytes: bytes) -> Optional[bytes]:
         return None
 
 
+def _auto_tag_garment(garment_id: int, image_bytes: bytes) -> None:
+    """
+    Background task: call Gemini Vision to extract category/color/material
+    and write them back to the Garment row.
+    Uses its own DB session — safe to run in a background thread.
+    """
+    import json
+    import google.generativeai as genai  # bundled with langchain-google-genai
+
+    try:
+        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+        model = genai.GenerativeModel("gemini-2.0-flash")
+
+        prompt = (
+            "Analyze this clothing item image. "
+            "Reply with ONLY a raw JSON object (no markdown, no code fences):\n"
+            '{"category": "<Top|Bottom|Outerwear|Dress|Shoes|Accessory>", '
+            '"color": "<main color name, e.g. Black, Navy Blue, White>", '
+            '"material": "<fabric type, e.g. Cotton|Denim|Polyester|Wool|Leather|Synthetic>"}'
+        )
+        img_part = {"mime_type": "image/jpeg", "data": image_bytes}
+        response = model.generate_content([prompt, img_part])
+
+        raw = response.text.strip()
+        # Strip any accidental markdown fences
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        tags = json.loads(raw)
+
+        db = SessionLocal()
+        try:
+            g = db.get(Garment, garment_id)
+            if g:
+                g.category = tags.get("category")
+                g.color = tags.get("color")
+                g.material = tags.get("material")
+                db.commit()
+                logger.info(
+                    "Garment %s tagged: category=%s color=%s material=%s",
+                    garment_id, g.category, g.color, g.material,
+                )
+        finally:
+            db.close()
+
+    except Exception:
+        logger.exception("Auto-tagging failed for garment %s — skipping", garment_id)
+
+
 @app.post("/api/wardrobe/upload", status_code=201)
 async def wardrobe_upload(
+    background_tasks: BackgroundTasks,
     image: UploadFile = File(...),
     label: str = Form(None),
     current_user: User = Depends(get_current_user),
@@ -209,6 +260,9 @@ async def wardrobe_upload(
     db.add(garment)
     db.commit()
     db.refresh(garment)
+
+    # Schedule background auto-tagging (non-blocking)
+    background_tasks.add_task(_auto_tag_garment, garment.id, contents)
 
     logger.info(
         "Garment %s saved for user %s: %s (thumb: %s, nobg: %s)",

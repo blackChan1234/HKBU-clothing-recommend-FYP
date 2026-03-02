@@ -18,7 +18,7 @@
 - [x] Task 2.1: [後端] 建立本地端 SQLite 資料庫，設計 `Garment` 表格。欄位必須包含：`user_id` (外鍵), 圖片路徑, `category`, `color`, `material` 等 Meta Data。
 - [x] Task 2.2: [後端] 實作圖片儲存與優化機制：原圖存於伺服器，並生成縮圖 (Thumbnail)。
 - [x] Task 2.3: [後端] 整合 `rembg` 進行「自動背景去除」。
-- [ ] Task 2.4: [後端] 串接 Vision AI 進行「自動打標籤 (Auto-tagging)」，自動萃取衣物特徵並存入 `Garment` 資料表。
+- [x] Task 2.4: [後端] 串接 Vision AI 進行「自動打標籤 (Auto-tagging)」，自動萃取衣物特徵並存入 `Garment` 資料表。
 
 ## Phase 3: AI Agent 推薦大腦 (LangGraph)
 - [ ] Task 3.1: [後端] 移除舊有 LangGraph 的「無中生有」生圖邏輯。
