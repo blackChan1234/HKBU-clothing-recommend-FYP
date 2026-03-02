@@ -22,5 +22,5 @@
 
 ## Phase 3: AI Agent 推薦大腦 (LangGraph)
 - [x] Task 3.1: [後端] 移除舊有 LangGraph 的「無中生有」生圖邏輯。
-- [ ] Task 3.2: [後端] 重新設計 LangGraph Agent：根據當前登入的 `user_id`，從資料庫撈取該用戶的 `Garment` 數據，並依據場合/天氣推理出最合適的穿搭組合。
+- [x] Task 3.2: [後端] 重新設計 LangGraph Agent：根據當前登入的 `user_id`，從資料庫撈取該用戶的 `Garment` 數據，並依據場合/天氣推理出最合適的穿搭組合。
 - [ ] Task 3.3: [前後端] 建立 `/api/recommend/daily` 接口，回傳推薦的衣物組合與 Nano Banana 生成的試穿結果，並在前端展示。
