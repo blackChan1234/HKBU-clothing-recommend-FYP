@@ -9,10 +9,11 @@ from typing import Any, Dict, List, Literal, Optional, TypedDict
 # Fix Windows console encoding for Chinese characters
 os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, UploadFile, status
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from PIL import Image
@@ -24,7 +25,8 @@ from auth import create_access_token, get_current_user, hash_password, verify_pa
 from database import Garment, SessionLocal, User, get_db, init_db
 from apis.nano_banana_client import NanoBananaClient
 
-logger = logging.getLogger(__name__)
+# Reuse Uvicorn's logger so app logs appear in the same console as server startup logs.
+logger = logging.getLogger("uvicorn.error")
 
 # Ensure uploads and thumbnails directories exist before mounting
 UPLOADS_DIR = Path("uploads")
@@ -88,39 +90,64 @@ class AuthRequest(BaseModel):
 
 
 @app.post("/api/auth/register", status_code=201)
-async def register(body: AuthRequest, db: Session = Depends(get_db)):
+async def register(body: AuthRequest, request: Request, db: Session = Depends(get_db)):
     """
     Create a new user account and return a JWT so the client is logged in immediately.
     Returns 409 if the username is already taken.
     """
+    client_host = request.client.host if request.client else "unknown"
+    logger.info("Register attempt from %s for username=%s", client_host, body.username)
+
     if db.query(User).filter(User.username == body.username).first():
+        logger.info("Register rejected for username=%s: already taken", body.username)
         raise HTTPException(status_code=409, detail="Username already taken.")
 
     user = User(username=body.username, hashed_password=hash_password(body.password))
     db.add(user)
-    db.commit()
-    db.refresh(user)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        logger.info("Register rejected for username=%s: duplicate detected on commit", body.username)
+        raise HTTPException(status_code=409, detail="Username already taken.")
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("Failed to create user '%s'", body.username)
+        raise HTTPException(status_code=500, detail="Failed to create account.")
 
-    token = create_access_token(user_id=user.id, username=user.username)
-    logger.info("New user registered: %s (id=%s)", user.username, user.id)
+    try:
+        db.refresh(user)
+        token = create_access_token(user_id=user.id, username=user.username)
+    except Exception:
+        logger.exception("User '%s' was created but automatic sign-in failed", body.username)
+        raise HTTPException(
+            status_code=500,
+            detail="Account created, but automatic sign-in failed. Please log in manually.",
+        )
+
+    logger.info("New user registered: %s (id=%s) from %s", user.username, user.id, client_host)
     return {"access_token": token, "token_type": "bearer", "username": user.username}
 
 
 @app.post("/api/auth/login")
-async def login(body: AuthRequest, db: Session = Depends(get_db)):
+async def login(body: AuthRequest, request: Request, db: Session = Depends(get_db)):
     """
     Verify credentials and return a JWT.
     Returns 401 on wrong username or password (intentionally vague for security).
     """
+    client_host = request.client.host if request.client else "unknown"
+    logger.info("Login attempt from %s for username=%s", client_host, body.username)
+
     user = db.query(User).filter(User.username == body.username).first()
     if user is None or not verify_password(body.password, user.hashed_password):
+        logger.info("Login rejected for username=%s from %s", body.username, client_host)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password.",
         )
 
     token = create_access_token(user_id=user.id, username=user.username)
-    logger.info("User logged in: %s (id=%s)", user.username, user.id)
+    logger.info("User logged in: %s (id=%s) from %s", user.username, user.id, client_host)
     return {"access_token": token, "token_type": "bearer", "username": user.username}
 
 
@@ -157,17 +184,22 @@ def _remove_background(image_bytes: bytes) -> Optional[bytes]:
 
 def _auto_tag_garment(garment_id: int, image_bytes: bytes) -> None:
     """
-    Background task: call Gemini Vision to extract category/color/material
-    and write them back to the Garment row.
+    Background task: call HKBU GenAI (gemini-2.5-flash) via OpenAI-compatible API
+    to extract category/color/material and write them back to the Garment row.
     Uses its own DB session — safe to run in a background thread.
     """
+    import base64
     import json
-    import google.generativeai as genai  # bundled with langchain-google-genai
+    import requests as _requests
 
     try:
-        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        api_key = os.environ.get("HKBU_API_KEY", "")
+        base_url = os.environ.get("HKBU_BASE_URL", "https://genai.hkbu.edu.hk/api/v0/rest")
+        if not api_key:
+            logger.warning("HKBU_API_KEY not set — skipping auto-tagging for garment %s", garment_id)
+            return
 
+        img_b64 = base64.b64encode(image_bytes).decode()
         prompt = (
             "Analyze this clothing item image. "
             "Reply with ONLY a raw JSON object (no markdown, no code fences):\n"
@@ -175,10 +207,35 @@ def _auto_tag_garment(garment_id: int, image_bytes: bytes) -> None:
             '"color": "<main color name, e.g. Black, Navy Blue, White>", '
             '"material": "<fabric type, e.g. Cotton|Denim|Polyester|Wool|Leather|Synthetic>"}'
         )
-        img_part = {"mime_type": "image/jpeg", "data": image_bytes}
-        response = model.generate_content([prompt, img_part])
 
-        raw = response.text.strip()
+        payload = {
+            "model": "gemini-2.5-flash",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}},
+                    ],
+                }
+            ],
+            "max_tokens": 256,
+            "temperature": 0,
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        resp = _requests.post(
+            f"{base_url}/deployments/gemini-2.5-flash/chat/completions",
+            json=payload,
+            headers=headers,
+            timeout=30,
+        )
+        resp.raise_for_status()
+
+        raw = resp.json()["choices"][0]["message"]["content"].strip()
         # Strip any accidental markdown fences
         if raw.startswith("```"):
             raw = raw.split("```")[1]
