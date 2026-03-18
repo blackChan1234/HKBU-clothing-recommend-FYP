@@ -71,7 +71,7 @@ class HKBUAPIClient:
                 print(f"  [GEMINI API] Error: {type(e).__name__}")
             return self._fallback_gemini(prompt, temperature)
 
-    def call_chatgpt(self, messages: List[Dict], model: str = "qwen3-max", temperature: float = 0.7) -> str:
+    def call_chatgpt(self, messages: List[Dict], model: str = "gemini-2.5-pro", temperature: float = 0.7) -> str:
         """Call Official OpenAI ChatGPT API"""
         try:
             url = f"{self.openai_base_url}/deployments/{model}/chat/completions?api-version=v1"
@@ -122,17 +122,16 @@ class HKBUAPIClient:
             return f"Fallback Gemini Error: {e}"
 
     def _fallback_chatgpt(self, messages: List[Dict], temperature: float) -> str:
-        """Fallback to LangChain OpenAI"""
+        """Fallback to Gemini when ChatGPT fails"""
         try:
-            print("  [OPENAI] Using LangChain fallback...")
-            from langchain_openai import ChatOpenAI
-            model = ChatOpenAI(model="gpt-4o-mini", temperature=temperature)
+            print("  [FALLBACK] Using Gemini instead of ChatGPT...")
+            # Use Gemini as fallback since we have GEMINI_API_KEY
             if len(messages) > 0:
-                response = model.invoke(messages[-1]['content'])
-                return response.content
+                prompt = messages[-1]['content']
+                return self.call_gemini(prompt, temperature=temperature)
             return "No messages provided"
         except Exception as e:
-            return f"Fallback ChatGPT Error: {e}"
+            return f"Fallback Error: {e}"
 
 
 class WeatherAPI:

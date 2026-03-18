@@ -148,7 +148,7 @@ Reply with ONLY a raw JSON array (no markdown, no code fences):
 ]"""
 
     api_client = HKBUAPIClient()
-    raw = api_client.call_chatgpt([{"role": "user", "content": prompt}])
+    raw = api_client.call_chatgpt([{"role": "user", "content": prompt}], model="qwen-plus", temperature=0.7)
 
     try:
         combinations = _parse_json_safe(raw)

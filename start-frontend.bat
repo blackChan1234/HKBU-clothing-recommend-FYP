@@ -76,7 +76,7 @@ echo ============================================
 echo.
 
 :: Start Expo and clear the Metro cache.
-call npm.cmd run start -- --clear
+call npm.cmd run start --tunnel
 
 :: Keep the window open after the server stops.
 pause

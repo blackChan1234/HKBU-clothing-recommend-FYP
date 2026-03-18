@@ -9,6 +9,9 @@ from typing import Any, Dict, List, Literal, Optional, TypedDict
 # Fix Windows console encoding for Chinese characters
 os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
