@@ -1,6 +1,7 @@
 import base64
 import io
 import logging
+import mimetypes
 import os
 import uuid
 from pathlib import Path
@@ -16,6 +17,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+import requests
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -25,7 +27,7 @@ from PIL import Image
 # if the model weights have not yet been downloaded.
 
 from auth import create_access_token, get_current_user, hash_password, verify_password
-from database import Garment, SessionLocal, User, get_db, init_db
+from database import Garment, SessionLocal, User, UserFeedback, UserProfile, get_db, init_db
 from apis.nano_banana_client import NanoBananaClient
 
 # Reuse Uvicorn's logger so app logs appear in the same console as server startup logs.
@@ -54,6 +56,10 @@ app.add_middleware(
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 # Serve thumbnails at /thumbnails/<filename>
 app.mount("/thumbnails", StaticFiles(directory=str(THUMBNAILS_DIR)), name="thumbnails")
+# Serve RichWear dataset photos at /richwear/<filename>
+RICHWEAR_DIR = Path("sample-outfits/richwear~/RichWear/photos")
+if RICHWEAR_DIR.exists():
+    app.mount("/richwear", StaticFiles(directory=str(RICHWEAR_DIR)), name="richwear")
 
 nano_client = NanoBananaClient()
 
@@ -67,6 +73,7 @@ class TryOnJob(TypedDict):
     person_image_url: str
     garment_image_url: str
     result: Optional[Dict[str, Any]]
+    result_url: Optional[str]
     error: Optional[Literal["content_violation", "api_error"]]
     detail: Optional[str]
 
@@ -158,6 +165,114 @@ async def login(body: AuthRequest, request: Request, db: Session = Depends(get_d
 async def me(current_user: User = Depends(get_current_user)):
     """Return the currently authenticated user's profile (useful for token validation)."""
     return {"user_id": current_user.id, "username": current_user.username}
+
+
+# ---------------------------------------------------------------------------
+# User Profile
+# ---------------------------------------------------------------------------
+
+class ProfileUpdate(BaseModel):
+    display_name: Optional[str] = None
+    gender: Optional[str] = None
+    height_cm: Optional[int] = None
+    weight_kg: Optional[int] = None
+    skin_tone: Optional[str] = None
+    preferred_styles: Optional[List[str]] = None
+    preferred_colors: Optional[List[str]] = None
+    preferred_patterns: Optional[List[str]] = None
+    budget_range: Optional[str] = None
+    favorite_brands: Optional[str] = None
+    liked_outfit_tags: Optional[List[str]] = None
+
+
+def _json_list_or_empty(raw_value: Optional[str]) -> List[str]:
+    import json as _j
+
+    if not raw_value:
+        return []
+    try:
+        parsed = _j.loads(raw_value)
+        return parsed if isinstance(parsed, list) else []
+    except Exception:
+        return []
+
+
+def _profile_to_dict(p: UserProfile) -> dict:
+    return {
+        "display_name": p.display_name,
+        "gender": p.gender,
+        "height_cm": p.height_cm,
+        "weight_kg": p.weight_kg,
+        "skin_tone": p.skin_tone,
+        "preferred_styles": _json_list_or_empty(getattr(p, "preferred_styles", None)),
+        "preferred_colors": _json_list_or_empty(getattr(p, "preferred_colors", None)),
+        "preferred_patterns": _json_list_or_empty(getattr(p, "preferred_patterns", None)),
+        "budget_range": p.budget_range,
+        "favorite_brands": p.favorite_brands,
+        "liked_outfit_tags": _json_list_or_empty(getattr(p, "liked_outfit_tags", None)),
+    }
+
+
+@app.get("/api/auth/profile")
+def get_profile(current_user: User = Depends(get_current_user)):
+    """Return the user's profile or empty defaults."""
+    db = SessionLocal()
+    try:
+        p = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
+        if not p:
+            return {
+                "display_name": "", "gender": "", "height_cm": None, "weight_kg": None,
+                "skin_tone": "", "preferred_styles": [], "preferred_colors": [],
+                "preferred_patterns": [], "budget_range": "", "favorite_brands": "",
+                "liked_outfit_tags": [],
+            }
+        return _profile_to_dict(p)
+    finally:
+        db.close()
+
+
+@app.put("/api/auth/profile")
+def update_profile(body: ProfileUpdate, current_user: User = Depends(get_current_user)):
+    """Create or update the user's profile."""
+    import json as _j
+    db = SessionLocal()
+    try:
+        p = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
+        if not p:
+            p = UserProfile(user_id=current_user.id)
+            db.add(p)
+
+        if body.display_name is not None:
+            p.display_name = body.display_name
+        if body.gender is not None:
+            p.gender = body.gender
+        if body.height_cm is not None:
+            p.height_cm = body.height_cm
+        if body.weight_kg is not None:
+            p.weight_kg = body.weight_kg
+        if body.skin_tone is not None:
+            p.skin_tone = body.skin_tone
+        if body.preferred_styles is not None:
+            p.preferred_styles = _j.dumps(body.preferred_styles)
+        if body.preferred_colors is not None:
+            p.preferred_colors = _j.dumps(body.preferred_colors)
+        if body.preferred_patterns is not None:
+            p.preferred_patterns = _j.dumps(body.preferred_patterns)
+        if body.budget_range is not None:
+            p.budget_range = body.budget_range
+        if body.favorite_brands is not None:
+            p.favorite_brands = body.favorite_brands
+        if body.liked_outfit_tags is not None and hasattr(p, "liked_outfit_tags"):
+            p.liked_outfit_tags = _j.dumps(body.liked_outfit_tags)
+
+        db.commit()
+        db.refresh(p)
+        return _profile_to_dict(p)
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 
 # ---------------------------------------------------------------------------
@@ -356,6 +471,7 @@ async def list_garments(
         "garments": [
             {
                 "id": g.id,
+                "user_id": g.user_id,
                 "image_url": f"/uploads/{Path(g.image_path).name}",
                 "thumbnail_url": f"/thumbnails/{Path(g.thumbnail_path).name}" if g.thumbnail_path else None,
                 "nobg_url": f"/uploads/{Path(g.nobg_path).name}" if g.nobg_path else None,
@@ -368,6 +484,38 @@ async def list_garments(
             for g in garments
         ],
     }
+
+
+@app.delete("/api/wardrobe/garments/{garment_id}", status_code=200)
+async def delete_garment(
+    garment_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete a garment and its associated files. Users can only delete their own garments."""
+    garment = db.query(Garment).filter(Garment.id == garment_id).first()
+
+    if not garment:
+        raise HTTPException(status_code=404, detail="Garment not found")
+
+    if garment.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this garment")
+
+    # Delete physical files from disk
+    files_to_delete = [garment.image_path, garment.thumbnail_path, garment.nobg_path]
+    for file_path in files_to_delete:
+        if file_path:
+            try:
+                full_path = Path(file_path)
+                if full_path.exists():
+                    os.remove(full_path)
+            except Exception as e:
+                logger.warning(f"Failed to delete file {file_path}: {e}")
+
+    db.delete(garment)
+    db.commit()
+
+    return {"message": "Garment deleted successfully"}
 
 
 # ---------------------------------------------------------------------------
@@ -399,6 +547,67 @@ _CONTENT_VIOLATION_SIGNALS = [
 def _is_content_violation(text: str) -> bool:
     lowered = text.lower()
     return any(signal in lowered for signal in _CONTENT_VIOLATION_SIGNALS)
+
+
+def _guess_image_extension(content_type: Optional[str], fallback: str = ".png") -> str:
+    ext = mimetypes.guess_extension(content_type or "")
+    if not ext:
+        return fallback
+    if ext == ".jpe":
+        return ".jpg"
+    return ext
+
+
+def _decode_data_uri(data_uri: str) -> tuple[Optional[str], bytes]:
+    header, payload = data_uri.split(",", 1)
+    mime = None
+    if ";" in header and ":" in header:
+        mime = header.split(":", 1)[1].split(";", 1)[0].strip() or None
+    return mime, base64.b64decode(payload)
+
+
+def _persist_tryon_asset(job_id: str, image_bytes: bytes, content_type: Optional[str]) -> str:
+    ext = _guess_image_extension(content_type, fallback=".png")
+    file_name = f"{job_id}_tryon{ext}"
+    output_path = UPLOADS_DIR / file_name
+    output_path.write_bytes(image_bytes)
+    return f"/uploads/{file_name}"
+
+
+def _normalize_tryon_result(job_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = dict(result)
+    image_url = normalized.get("image_url")
+    image_data = normalized.get("image_data")
+    result_url = None
+
+    if isinstance(image_data, str) and image_data.startswith("data:"):
+        content_type, image_bytes = _decode_data_uri(image_data)
+        result_url = _persist_tryon_asset(job_id, image_bytes, content_type)
+        normalized["image_data"] = None
+        normalized["storage"] = "server_upload"
+    elif isinstance(image_url, str) and image_url.startswith("data:"):
+        content_type, image_bytes = _decode_data_uri(image_url)
+        result_url = _persist_tryon_asset(job_id, image_bytes, content_type)
+        normalized["image_url"] = None
+        normalized["storage"] = "server_upload"
+    elif isinstance(image_url, str) and image_url.startswith("http"):
+        try:
+            response = requests.get(image_url, timeout=60)
+            response.raise_for_status()
+            content_type = response.headers.get("Content-Type")
+            result_url = _persist_tryon_asset(job_id, response.content, content_type)
+            normalized["source_image_url"] = image_url
+            normalized["storage"] = "server_upload"
+        except Exception:
+            logger.warning("Try-on job %s: failed to persist remote image, using provider URL", job_id)
+            result_url = image_url
+            normalized["storage"] = "provider_url"
+
+    if result_url:
+        normalized["image_url"] = result_url
+
+    normalized["result_url"] = normalized.get("image_url") or normalized.get("image_data")
+    return normalized
 
 
 def _run_tryon_job(job_id: str, person_bytes: bytes, garment_bytes: bytes, garment_mime: str) -> None:
@@ -438,8 +647,10 @@ def _run_tryon_job(job_id: str, person_bytes: bytes, garment_bytes: bytes, garme
             _jobs[job_id]["detail"] = "Nano Banana returned no image data."
             return
 
+        normalized = _normalize_tryon_result(job_id, result)
         _jobs[job_id]["status"] = "completed"
-        _jobs[job_id]["result"] = result
+        _jobs[job_id]["result"] = normalized
+        _jobs[job_id]["result_url"] = normalized.get("result_url")
         logger.info("Try-on job %s completed", job_id)
 
     except Exception as exc:
@@ -452,6 +663,7 @@ def _run_tryon_job(job_id: str, person_bytes: bytes, garment_bytes: bytes, garme
             _jobs[job_id]["status"] = "failed"
             _jobs[job_id]["error"] = "api_error"
             _jobs[job_id]["detail"] = err_msg
+        _jobs[job_id]["result_url"] = None
         logger.exception("Try-on job %s failed: %s", job_id, exc)
 
 
@@ -488,6 +700,7 @@ async def try_on_generate(
         person_image_url=f"/uploads/{person_name}",
         garment_image_url=f"/uploads/{garment_name}",
         result=None,
+        result_url=None,
         error=None,
         detail=None,
     )
@@ -529,6 +742,7 @@ async def try_on_status(job_id: str):
             "status": "completed",
             "person_image_url": job["person_image_url"],
             "garment_image_url": job["garment_image_url"],
+            "result_url": job["result_url"],
             "result": job["result"],
         }
 
@@ -548,11 +762,13 @@ async def try_on_status(job_id: str):
 class FeedbackRequest(BaseModel):
     garment_ids: List[int]
     liked: bool
+    occasion: Optional[str] = None
 
 
 @app.post("/api/recommend/daily")
 def recommend_daily(
     occasion: str = Form("casual"),
+    wardrobe_only: str = Form("true"),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -562,7 +778,8 @@ def recommend_daily(
     """
     from services.wardrobe_agent import run_wardrobe_recommendation
     try:
-        return run_wardrobe_recommendation(user_id=current_user.id, occasion=occasion)
+        use_samples = wardrobe_only.lower() == "false"
+        return run_wardrobe_recommendation(user_id=current_user.id, occasion=occasion, include_samples=use_samples)
     except Exception as exc:
         logger.exception("Recommend daily failed for user %s", current_user.username)
         raise HTTPException(status_code=500, detail=str(exc))
@@ -574,16 +791,89 @@ async def recommend_feedback(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Log a like/pass decision for a specific outfit's garments.
-    Payload: {"garment_ids": [4, 7], "liked": true}
-    Stored in server log for now — ready for DB persistence later.
+    Persist a like/pass decision for a specific outfit's garments.
+    Payload: {"garment_ids": [4, 7], "liked": true, "occasion": "casual"}
+    Used by the Personal Preference Agent for personalized recommendations.
     """
+    import json as _json
     action = "LIKED" if body.liked else "PASSED"
     logger.info(
         "Feedback | user=%s action=%s garment_ids=%s",
         current_user.username, action, body.garment_ids,
     )
+    if not body.garment_ids:
+        return {"status": "ignored", "reason": "no_garment_ids"}
+    db = SessionLocal()
+    try:
+        fb = UserFeedback(
+            user_id=current_user.id,
+            garment_ids=_json.dumps(body.garment_ids),
+            liked=1 if body.liked else 0,
+            occasion=body.occasion,
+        )
+        db.add(fb)
+        db.commit()
+    except Exception:
+        logger.exception("Failed to persist feedback")
+        db.rollback()
+    finally:
+        db.close()
     return {"status": "recorded"}
+
+
+@app.post("/api/try-on/from-sample", status_code=202)
+async def try_on_from_sample(
+    background_tasks: BackgroundTasks,
+    person_image: UploadFile = File(..., description="Headless full-body photo"),
+    sample_image_url: str = Form(..., description="RichWear image path, e.g. /richwear/6-4/xxx.jpg"),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Virtual try-on using a RichWear sample image.
+    Reads the sample image from the dataset photos directory on disk.
+    """
+    # Validate person image type
+    if person_image.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status_code=415, detail=f"Unsupported image type '{person_image.content_type}'.")
+
+    # Resolve sample image path safely (prevent path traversal)
+    # sample_image_url is like "/richwear/6-4/20180728104316845_500.jpg"
+    relative = sample_image_url.lstrip("/").removeprefix("richwear/")
+    sample_path = RICHWEAR_DIR / relative
+    if not sample_path.exists() or not sample_path.is_file():
+        raise HTTPException(status_code=404, detail=f"Sample image not found: {sample_image_url}")
+    # Security: ensure resolved path is inside RICHWEAR_DIR
+    try:
+        sample_path.resolve().relative_to(RICHWEAR_DIR.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Invalid sample image path.")
+
+    person_bytes = await person_image.read()
+    garment_bytes = sample_path.read_bytes()
+    garment_mime = mimetypes.guess_type(sample_path.name)[0] or "image/jpeg"
+
+    job_id = uuid.uuid4().hex
+    person_name = f"{job_id}_person_{Path(person_image.filename or 'person.jpg').name}"
+    (UPLOADS_DIR / person_name).write_bytes(person_bytes)
+
+    _jobs[job_id] = TryOnJob(
+        status="pending",
+        person_image_url=f"/uploads/{person_name}",
+        garment_image_url=sample_image_url,
+        result=None,
+        result_url=None,
+        error=None,
+        detail=None,
+    )
+
+    background_tasks.add_task(_run_tryon_job, job_id, person_bytes, garment_bytes, garment_mime)
+
+    logger.info("Try-on (from sample) job %s queued: user=%s sample=%s", job_id, current_user.username, sample_image_url)
+    return {
+        "job_id": job_id,
+        "status": "pending",
+        "poll_url": f"/api/try-on/status/{job_id}",
+    }
 
 
 @app.post("/api/try-on/from-wardrobe", status_code=202)
@@ -616,7 +906,7 @@ async def try_on_from_wardrobe(
 
     person_bytes = await person_image.read()
     garment_bytes = Path(garment.image_path).read_bytes()
-    garment_mime = "image/jpeg"
+    garment_mime = mimetypes.guess_type(str(garment.image_path))[0] or "image/jpeg"
 
     job_id = uuid.uuid4().hex
     person_name = f"{job_id}_person_{Path(person_image.filename or 'person.jpg').name}"
@@ -627,6 +917,7 @@ async def try_on_from_wardrobe(
         person_image_url=f"/uploads/{person_name}",
         garment_image_url=f"/uploads/{Path(garment.image_path).name}",
         result=None,
+        result_url=None,
         error=None,
         detail=None,
     )

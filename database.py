@@ -11,7 +11,7 @@ DATABASE_URL = "sqlite:///./aura.db"
 
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False},  # required for SQLite
+    connect_args={"check_same_thread": False},
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -19,10 +19,6 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 class Base(DeclarativeBase):
     pass
 
-
-# ---------------------------------------------------------------------------
-# User
-# ---------------------------------------------------------------------------
 
 class User(Base):
     __tablename__ = "users"
@@ -32,11 +28,9 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
 
     garments = relationship("Garment", back_populates="owner", cascade="all, delete-orphan")
+    feedback = relationship("UserFeedback", back_populates="owner", cascade="all, delete-orphan")
+    profile = relationship("UserProfile", back_populates="owner", uselist=False, cascade="all, delete-orphan")
 
-
-# ---------------------------------------------------------------------------
-# Garment
-# ---------------------------------------------------------------------------
 
 class Garment(Base):
     __tablename__ = "garments"
@@ -44,16 +38,14 @@ class Garment(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
 
-    # Storage paths (relative to project root)
     image_path = Column(String, nullable=False)
-    thumbnail_path = Column(String, nullable=True)   # populated by Task 2.2
-    nobg_path = Column(String, nullable=True)         # PNG with transparent bg (Task 2.3)
+    thumbnail_path = Column(String, nullable=True)
+    nobg_path = Column(String, nullable=True)
 
-    # Metadata — all nullable until auto-tagging (Task 2.4) fills them in
-    label = Column(String(100), nullable=True)        # free-text user label
-    category = Column(String(50), nullable=True)      # e.g. Top / Pants / Shoes
-    color = Column(String(50), nullable=True)         # e.g. Black / Navy
-    material = Column(String(50), nullable=True)      # e.g. Cotton / Denim
+    label = Column(String(100), nullable=True)
+    category = Column(String(50), nullable=True)
+    color = Column(String(50), nullable=True)
+    material = Column(String(50), nullable=True)
 
     created_at = Column(
         DateTime,
@@ -64,24 +56,74 @@ class Garment(Base):
     owner = relationship("User", back_populates="garments")
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+class UserFeedback(Base):
+    __tablename__ = "user_feedback"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    garment_ids = Column(String, nullable=False)
+    liked = Column(Integer, nullable=False)
+    occasion = Column(String(100), nullable=True)
+    created_at = Column(
+        DateTime,
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    owner = relationship("User", back_populates="feedback")
+
+
+class UserProfile(Base):
+    __tablename__ = "user_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+
+    display_name = Column(String(100), nullable=True)
+    gender = Column(String(20), nullable=True)
+    height_cm = Column(Integer, nullable=True)
+    weight_kg = Column(Integer, nullable=True)
+    skin_tone = Column(String(20), nullable=True)
+
+    preferred_styles = Column(String, nullable=True)
+    preferred_colors = Column(String, nullable=True)
+    preferred_patterns = Column(String, nullable=True)
+    budget_range = Column(String(20), nullable=True)
+    favorite_brands = Column(String, nullable=True)
+    liked_outfit_tags = Column(String, nullable=True)
+
+    created_at = Column(
+        DateTime,
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at = Column(
+        DateTime,
+        nullable=True,
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    owner = relationship("User", back_populates="profile")
+
 
 def init_db() -> None:
     """
-    Create all tables, then apply any additive migrations for existing DBs.
+    Create all tables, then apply additive migrations for existing DBs.
     Each ALTER TABLE is wrapped in try/except so re-runs are safe.
     """
     Base.metadata.create_all(bind=engine)
 
-    # Task 2.3: add nobg_path if this DB was created before Task 2.3
     with engine.connect() as conn:
         try:
             conn.execute(text("ALTER TABLE garments ADD COLUMN nobg_path VARCHAR"))
             conn.commit()
         except Exception:
-            pass  # column already exists — safe to ignore
+            pass
+        try:
+            conn.execute(text("ALTER TABLE user_profiles ADD COLUMN liked_outfit_tags VARCHAR"))
+            conn.commit()
+        except Exception:
+            pass
 
 
 def get_db():
