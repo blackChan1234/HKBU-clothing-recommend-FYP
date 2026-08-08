@@ -21,7 +21,7 @@ The goal is to allow users to upload photos of their clothes, use an AI Agent to
 - A basic MVP UI (`App.js`) has been set up with `expo-image-picker` to capture photos.
 - The backend FastAPI structure and LangGraph logic exist but need to be properly connected to the new React Native frontend.
 
-## 5. Next Steps & Tasks for Claude
+## 5. Next Steps & Tasks
 1. **API Integration:** Connect the React Native frontend to the local FastAPI server. Implement `FormData` image uploads from Android to Python.
 2. **Database Setup:** Design and implement a database (e.g., SQLite or Supabase) to store user wardrobe items (thumbnails locally, full images on cloud/backend).
 3. **Async Task Handling:** IDM-VTON generation takes 10-30 seconds. Help implement a robust loading state or async polling mechanism between React Native and FastAPI to handle long-running generation tasks without blocking the UI.

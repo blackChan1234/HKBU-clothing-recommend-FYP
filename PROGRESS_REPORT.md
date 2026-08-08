@@ -3,7 +3,7 @@
 **Project:** Aura Stylist — AI-Powered Virtual Fashion Try-On & Wardrobe Recommendation App
 **Report Date:** 2026-03-03
 **Repository Branch:** `main`
-**Report Prepared By:** Technical Project Manager (Claude Code)
+**Report Prepared By:** Technical Project Manager
 
 ---
 
