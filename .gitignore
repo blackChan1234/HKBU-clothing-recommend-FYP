@@ -1,14 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Environment / secrets
 .env
-/.claude
-/IDM-VTON
-/paper
-/Prsentation
-/__pycache__
-/venv
-/uploads
-/HKBU GenAI Platform_files
-HKBU GenAI Platform.html
-/thumbnails
-/sample-outfits
-/task
-TECH_SUMMARY_FOR_REPORT.md
+.env.*
+
+# Databases & data files
+*.db
+*.sqlite3
+*.db-journal
+uploads/
+
+# Node / frontend
+node_modules/
+dist/
+build/
+*.local
+
+# IDE / editors
+.idea/
+.vscode/
+*.iml
+.vs/
+
+# AI assistant configs
+.cursor/
+.superdesign/
+.windsurfrules
+CLAUDE.md
+AGENTS.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+tmp*
+*.log
